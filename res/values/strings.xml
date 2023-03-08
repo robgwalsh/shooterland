@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hello">Hello World, HelloAndroid!</string>
+    <string name="app_name">Shooterland</string>
+<string name="menu_achievements">Achievements</string>
+<string name="menu_pause">Pause</string>
+<string name="menu_help">Help</string>
+</resources>
