@@ -1,0 +1,24 @@
+{
+  "name": "asset-pipeline",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Converts the legacy Shooterland data in legacy/ into web-ready assets for packages/shooterland/assets.",
+  "scripts": {
+    "build": "tsx src/index.ts --legacy ../../legacy --out ../../packages/shooterland/assets",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"(pipeline tests arrive with phase 1)\""
+  },
+  "dependencies": {
+    "omggif": "1.0.10",
+    "pngjs": "7.0.0",
+    "wavefile": "11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/omggif": "1.0.5",
+    "@types/pngjs": "6.0.5",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

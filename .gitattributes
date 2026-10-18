@@ -1,0 +1,11 @@
+* text=auto eol=lf
+# Original game data and the old Android port are archival: never touch their bytes.
+legacy/** -text
+android/** -text
+*.png binary
+*.gif binary
+*.wav binary
+*.mid binary
+*.sf2 binary
+*.sf3 binary
+*.woff2 binary

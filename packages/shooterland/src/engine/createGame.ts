@@ -1,0 +1,152 @@
+import { TICK_SECONDS } from '../core/constants';
+import { PointerInput } from '../input/PointerInput';
+import { createGLContext } from '../render/gl';
+import { Renderer } from '../render/Renderer';
+import { Viewport } from '../render/Viewport';
+import { BootScene } from '../scenes/BootScene';
+import { SceneManager } from '../scenes/Scene';
+
+export type GameEvent =
+  | { readonly type: 'ready' }
+  | { readonly type: 'error'; readonly error: Error }
+  | { readonly type: 'paused' }
+  | { readonly type: 'resumed' };
+
+export interface GameOptions {
+  /** Base URL (with trailing slash) where the package's `assets/` directory is served. */
+  assetBaseUrl?: string | undefined;
+  /** Resize the canvas backing store to its CSS box automatically. Default true. */
+  autoResize?: boolean | undefined;
+  /** Upper bound on devicePixelRatio used for the backing store. Default 2. */
+  maxPixelRatio?: number | undefined;
+  muted?: boolean | undefined;
+  /** Seed for the deterministic simulation RNG. Default: time-based. */
+  seed?: number | undefined;
+  onEvent?: ((event: GameEvent) => void) | undefined;
+  /** Aborting cancels asset loading and destroys the game. */
+  signal?: AbortSignal | undefined;
+}
+
+export interface GameHandle {
+  readonly version: string;
+  /** Resolves once assets are loaded and the first scene is running. */
+  readonly ready: Promise<void>;
+  pause(): void;
+  resume(): void;
+  readonly paused: boolean;
+  setMuted(muted: boolean): void;
+  /** Sets the canvas backing-store size in device pixels. Only needed when `autoResize` is false. */
+  resize(width: number, height: number): void;
+  destroy(): void;
+}
+
+const MAX_CATCHUP_STEPS = 5;
+
+/**
+ * Boots the game on an existing canvas. Owns the GL context, the fixed-step
+ * loop, input listeners and the scene stack until `destroy()` is called.
+ */
+export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {}): GameHandle {
+  const version = typeof __SHOOTERLAND_VERSION__ === 'string' ? __SHOOTERLAND_VERSION__ : 'dev';
+  const emit = (event: GameEvent): void => options.onEvent?.(event);
+
+  const viewport = new Viewport();
+  const gl = createGLContext(canvas);
+  const renderer = new Renderer(gl, viewport);
+  const input = new PointerInput(canvas, viewport);
+  const scenes = new SceneManager();
+
+  let destroyed = false;
+  let paused = false;
+  let rafId = 0;
+  let last = 0;
+  let accumulator = 0;
+
+  const resize = (width: number, height: number): void => {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    viewport.resize(w, h);
+  };
+
+  let observer: ResizeObserver | null = null;
+  if (options.autoResize !== false && typeof ResizeObserver !== 'undefined') {
+    const maxDpr = options.maxPixelRatio ?? 2;
+    const fitCanvas = (): void => {
+      const dpr = Math.min(maxDpr, globalThis.devicePixelRatio || 1);
+      const r = canvas.getBoundingClientRect();
+      resize(r.width * dpr, r.height * dpr);
+    };
+    observer = new ResizeObserver(fitCanvas);
+    observer.observe(canvas);
+    fitCanvas();
+  } else {
+    resize(canvas.width, canvas.height);
+  }
+
+  const frame = (now: number): void => {
+    if (destroyed) return;
+    rafId = requestAnimationFrame(frame);
+    if (last === 0) last = now;
+    let elapsed = (now - last) / 1000;
+    last = now;
+    if (elapsed > MAX_CATCHUP_STEPS * TICK_SECONDS) elapsed = MAX_CATCHUP_STEPS * TICK_SECONDS;
+    if (paused) {
+      input.drain();
+      scenes.draw(renderer);
+      return;
+    }
+    accumulator += elapsed;
+    while (accumulator >= TICK_SECONDS) {
+      scenes.update(TICK_SECONDS, input.drain());
+      accumulator -= TICK_SECONDS;
+    }
+    scenes.draw(renderer);
+  };
+
+  scenes.go(new BootScene());
+  rafId = requestAnimationFrame(frame);
+
+  const ready = Promise.resolve().then(() => {
+    if (!destroyed) emit({ type: 'ready' });
+  });
+
+  const destroy = (): void => {
+    if (destroyed) return;
+    destroyed = true;
+    cancelAnimationFrame(rafId);
+    observer?.disconnect();
+    input.destroy();
+    scenes.destroy();
+    // The GL context is intentionally left alive: a host (React StrictMode, prop changes)
+    // may create a new game on the same canvas, and a lost context cannot be re-acquired.
+  };
+
+  options.signal?.addEventListener('abort', destroy, { once: true });
+
+  return {
+    version,
+    ready,
+    get paused() {
+      return paused;
+    },
+    pause() {
+      if (paused || destroyed) return;
+      paused = true;
+      emit({ type: 'paused' });
+    },
+    resume() {
+      if (!paused || destroyed) return;
+      paused = false;
+      last = 0;
+      accumulator = 0;
+      emit({ type: 'resumed' });
+    },
+    setMuted(_muted: boolean) {
+      // Audio arrives in phase 7.
+    },
+    resize,
+    destroy,
+  };
+}
