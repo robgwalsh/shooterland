@@ -23,6 +23,7 @@ import {
 } from '../types';
 import { findCombos } from './match';
 import { muzzleCell, type Projectile, spawnProjectile, stepProjectile } from './projectile';
+import { Rosco } from './rosco';
 
 export type Command =
   | { readonly t: 'aim'; readonly col: number; readonly row: number }
@@ -72,6 +73,9 @@ export type SessionEvent =
       readonly shooter: ShooterSide;
       readonly cost: number;
     }
+  | { readonly t: 'roscoEmerged' }
+  | { readonly t: 'roscoSpeedUp'; readonly speed: number }
+  | { readonly t: 'roscoStole'; readonly money: number }
   | { readonly t: 'won'; readonly ticks: number; readonly star: boolean }
   | { readonly t: 'defeated'; readonly reason: 'rosco' };
 
@@ -91,6 +95,8 @@ export interface SessionStats {
   shots: number;
   combos: number;
   comboPieces: number;
+  moneyEarned: number;
+  moneyStolen: number;
 }
 
 export interface SessionState {
@@ -99,6 +105,7 @@ export interface SessionState {
   readonly shooters: { readonly bottom: ShooterState; readonly right: ShooterState };
   readonly inFlight: readonly Projectile[];
   readonly enemies: Readonly<Record<EnemyKind, number>>;
+  readonly rosco: Rosco;
   readonly money: number;
   readonly ticks: number;
   readonly status: SessionStatus;
@@ -122,7 +129,14 @@ export class GameSession implements SessionState {
     fangie: 0,
     skully: 0,
   };
-  readonly stats: SessionStats = { shots: 0, combos: 0, comboPieces: 0 };
+  readonly stats: SessionStats = {
+    shots: 0,
+    combos: 0,
+    comboPieces: 0,
+    moneyEarned: 0,
+    moneyStolen: 0,
+  };
+  readonly rosco: Rosco;
   money: number;
   ticks = 0;
   status: SessionStatus = 'playing';
@@ -143,6 +157,12 @@ export class GameSession implements SessionState {
       if (kind) this.enemies[kind]++;
     }
     this.money = rules.startingMoney;
+    this.rosco = new Rosco(
+      level.lairDelayMs,
+      level.speedUpIntervalMs,
+      rules.roscoTripSeconds,
+      rules.roscoSpeedUpFactor,
+    );
     const mid = Math.floor(GRID_SIZE / 2);
     this.shooters = {
       bottom: { side: 'bottom', size: level.bottomShooterSize, lane: mid, loaded: 0, next: 0 },
@@ -215,6 +235,7 @@ export class GameSession implements SessionState {
     this.advanceProjectiles(events);
     if (this.volley && this.projectiles.length === 0) this.settleVolley(events);
     this.checkWin(events);
+    if (this.status === 'playing') this.advanceRosco(events);
     return events;
   }
 
@@ -388,6 +409,7 @@ export class GameSession implements SessionState {
       const size = combo.cells.length;
       const money = rules.comboBaseMoney + (size - 3) * rules.comboExtraMoney;
       this.money += money;
+      this.stats.moneyEarned += money;
       this.stats.combos++;
       this.stats.comboPieces += size;
       for (const c of combo.cells) this.grid.set(c.col, c.row, TileId.Empty);
@@ -404,6 +426,22 @@ export class GameSession implements SessionState {
       s.next = this.drawAmmo();
     }
     events.push({ t: 'reloaded' });
+  }
+
+  private advanceRosco(events: SessionEvent[]): void {
+    for (const what of this.rosco.tick()) {
+      if (what === 'emerged') events.push({ t: 'roscoEmerged' });
+      else if (what === 'speedUp') events.push({ t: 'roscoSpeedUp', speed: this.rosco.speed });
+      else if (this.money > 0) {
+        this.money--;
+        this.stats.moneyStolen++;
+        events.push({ t: 'roscoStole', money: this.money });
+      } else {
+        this.status = 'lost';
+        events.push({ t: 'defeated', reason: 'rosco' });
+        return;
+      }
+    }
   }
 
   private adjacentEnemies(cells: readonly GridPos[]): GridPos[] {
@@ -468,6 +506,11 @@ export class GameSession implements SessionState {
         .int(Math.round(p.progress * 1e6));
     }
     h.int(this.stats.shots).int(this.stats.combos).int(this.stats.comboPieces);
+    h.string(this.rosco.phase)
+      .int(Math.round(this.rosco.position * 1e6))
+      .int(Math.round(this.rosco.speed * 1e6))
+      .int(this.rosco.lairTicks)
+      .int(this.rosco.speedUpTicks);
     return h.hex();
   }
 }

@@ -1,25 +1,47 @@
 import { AssetLoader, type Assets } from '../assets/AssetLoader';
 import { TICK_SECONDS } from '../core/constants';
+import type { LevelData } from '../core/level/LevelData';
+import type { SessionEvent, SessionState } from '../core/sim/GameSession';
 import { PointerInput } from '../input/PointerInput';
 import { createGLContext } from '../render/gl';
 import { Renderer } from '../render/Renderer';
 import { Viewport } from '../render/Viewport';
 import { AssetViewerScene } from '../scenes/AssetViewerScene';
 import { BootScene } from '../scenes/BootScene';
+import { GameplayScene } from '../scenes/GameplayScene';
 import { LoadingScene } from '../scenes/LoadingScene';
+import { ResultScene } from '../scenes/ResultScene';
 import { SceneManager } from '../scenes/Scene';
 
 export type GameEvent =
   | { readonly type: 'ready' }
   | { readonly type: 'error'; readonly error: Error }
   | { readonly type: 'paused' }
-  | { readonly type: 'resumed' };
+  | { readonly type: 'resumed' }
+  | { readonly type: 'levelStart'; readonly world: number; readonly level: number }
+  | {
+      readonly type: 'levelComplete';
+      readonly world: number;
+      readonly level: number;
+      readonly seconds: number;
+      readonly star: boolean;
+    }
+  | { readonly type: 'defeat'; readonly world: number; readonly level: number }
+  | { readonly type: 'session'; readonly events: readonly SessionEvent[] };
 
 /**
  * Which scene to show once assets are loaded. 'boot' skips asset loading
  * entirely and shows the plumbing-test scene.
  */
-export type StartScene = 'assetViewer' | 'boot';
+export type StartScene =
+  | 'assetViewer'
+  | 'boot'
+  | {
+      readonly kind: 'gameplay';
+      readonly world: number;
+      readonly level: number;
+      readonly seed?: number | undefined;
+    };
 
 export interface GameOptions {
   /** Base URL (with trailing slash) where the package's `assets/` directory is served. */
@@ -37,6 +59,11 @@ export interface GameOptions {
   signal?: AbortSignal | undefined;
 }
 
+export interface GameDebug {
+  /** The live simulation state of the current level, if a level is being played. */
+  session(): SessionState | null;
+}
+
 export interface GameHandle {
   readonly version: string;
   /** Resolves once assets are loaded and the first scene is running; rejects if loading fails. */
@@ -48,6 +75,7 @@ export interface GameHandle {
   /** Sets the canvas backing-store size in device pixels. Only needed when `autoResize` is false. */
   resize(width: number, height: number): void;
   destroy(): void;
+  readonly debug: GameDebug;
 }
 
 const MAX_CATCHUP_STEPS = 5;
@@ -74,6 +102,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   const scenes = new SceneManager();
   const abort = new AbortController();
   let assets: Assets | null = null;
+  let gameplay: GameplayScene | null = null;
 
   let destroyed = false;
   let paused = false;
@@ -124,6 +153,53 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     scenes.draw(renderer);
   };
 
+  /** Starts a level, chaining into the result screen and back. */
+  const startLevel = async (loaded: Assets, level: LevelData, seed: number): Promise<void> => {
+    const world = await loaded.world(level.world);
+    if (destroyed) return;
+    const scene = new GameplayScene({
+      assets: loaded,
+      world,
+      level,
+      seed,
+      onEvents: (events) => emit({ type: 'session', events }),
+      onFinish: ({ outcome, session }) => {
+        gameplay = null;
+        if (outcome === 'won') {
+          emit({
+            type: 'levelComplete',
+            world: level.world,
+            level: level.level,
+            seconds: session.seconds,
+            star: session.seconds <= level.timeToBeat,
+          });
+        } else {
+          emit({ type: 'defeat', world: level.world, level: level.level });
+        }
+        scenes.go(
+          new ResultScene({
+            assets: loaded,
+            world,
+            session,
+            outcome,
+            onContinue: (action) => {
+              const next =
+                action === 'next'
+                  ? (loaded.level(level.world, level.level + 1) ??
+                    loaded.level(level.world + 1, 1) ??
+                    level)
+                  : level;
+              void startLevel(loaded, next, seed + 1);
+            },
+          }),
+        );
+      },
+    });
+    gameplay = scene;
+    scenes.go(scene);
+    emit({ type: 'levelStart', world: level.world, level: level.level });
+  };
+
   const startScene = options.startScene ?? 'assetViewer';
   let ready: Promise<void>;
   if (startScene === 'boot') {
@@ -135,13 +211,19 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     const loader = new AssetLoader(gl, options.assetBaseUrl ?? defaultAssetBaseUrl(), abort.signal);
     ready = loader
       .loadAll((p) => loading.setProgress(p.loaded, p.total))
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (destroyed) {
           loaded.destroy();
           return;
         }
         assets = loaded;
-        scenes.go(new AssetViewerScene(loaded));
+        if (startScene === 'assetViewer') {
+          scenes.go(new AssetViewerScene(loaded));
+          return;
+        }
+        const level = loaded.level(startScene.world, startScene.level);
+        if (!level) throw new Error(`no level ${startScene.world}-${startScene.level}`);
+        await startLevel(loaded, level, startScene.seed ?? options.seed ?? Date.now() & 0x7fffffff);
       })
       .catch((error: unknown) => {
         if (destroyed) return;
@@ -198,5 +280,8 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     },
     resize,
     destroy,
+    debug: {
+      session: () => gameplay?.session ?? null,
+    },
   };
 }

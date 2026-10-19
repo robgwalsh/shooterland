@@ -193,6 +193,17 @@ describe('GameSession', () => {
     expect(events[0]?.t).toBe('won');
   });
 
+  it('loses when Rosco reaches an empty piggy bank, and steals $1 otherwise', () => {
+    const s = new GameSession(level([[8, 8, TileId.Crazy]], { lairDelayMs: 0 }), 1, NO_BOMBS);
+    s.money = 1;
+    const events: SessionEvent[] = [];
+    for (let i = 0; i < 60 * 30 && s.status === 'playing'; i++) events.push(...s.tick());
+    expect(events.filter((e) => e.t === 'roscoStole')).toHaveLength(1);
+    expect(s.stats.moneyStolen).toBe(1);
+    expect(s.status).toBe('lost');
+    expect(events.at(-1)).toEqual({ t: 'defeated', reason: 'rosco' });
+  });
+
   it('is deterministic: same seed and commands give the same hash', () => {
     const text = readFileSync(join(LEVELS_DIR, 'Level1-1.sll'), 'latin1');
     const data = parseSll(text, { world: 1, level: 1, timeToBeat: 15 });

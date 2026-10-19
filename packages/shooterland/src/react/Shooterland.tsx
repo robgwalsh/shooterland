@@ -81,6 +81,11 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
 
   // The exposed handle is a stable proxy, so it stays valid across game re-creation
   // (for example when `assetBaseUrl` changes) and before the game has booted.
+  // The start scene is compared by value so an inline object literal does not re-create the game.
+  const startSceneKey = startScene === undefined ? '' : JSON.stringify(startScene);
+  const startSceneRef = useRef(startScene);
+  startSceneRef.current = startScene;
+
   useImperativeHandle(
     ref,
     (): GameHandle => ({
@@ -98,10 +103,14 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       setMuted: (m) => handleRef.current?.setMuted(m),
       resize: (w, h) => handleRef.current?.resize(w, h),
       destroy: () => handleRef.current?.destroy(),
+      debug: {
+        session: () => handleRef.current?.debug.session() ?? null,
+      },
     }),
     [],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: startScene is tracked by value through startSceneKey
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -116,7 +125,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       },
     };
     if (assetBaseUrl !== undefined) options.assetBaseUrl = assetBaseUrl;
-    if (startScene !== undefined) options.startScene = startScene;
+    if (startSceneRef.current !== undefined) options.startScene = startSceneRef.current;
     if (seed !== undefined) options.seed = seed;
     if (muted !== undefined) options.muted = muted;
     try {
@@ -133,7 +142,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       controller.abort();
       handleRef.current = null;
     };
-  }, [assetBaseUrl, startScene, seed, muted]);
+  }, [assetBaseUrl, startSceneKey, seed, muted]);
 
   useEffect(() => {
     if (!pauseWhenHidden) return;

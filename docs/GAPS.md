@@ -16,7 +16,7 @@ Reconciliation tools, in order of cost: (a) **run `legacy/Shooterland Windowed.e
 | G5 | Store prices, starting money, whether money persists between levels | Java placeholders; money starts 0 | exe | open | |
 | G6 | Weight push/crush algorithm (what stops a push, chain pushes, crush ordering, what happens to the weight itself) | 1-11/1-12 text | exe + disasm | open | |
 | G7 | Shooter size change rule ("flu": random timing, range 1..header size?) and lane geometry for size 2/3 | header lines 1-2 = max size | exe | open | |
-| G8 | Ramp ids 16/18 orientation, flat-side blocking, ramp shot deflected by ramp, bomb-on-flat-side | derived 17 = "\", 19 = "/" | level geometry + exe | open | |
+| G8 | Ramp orientations, flat-side blocking, ramp shot deflected by ramp, bomb-on-flat-side | 16 = open top+left, 17 = top+right, 18 = bottom+left, 19 = bottom+right; entering an open edge exits via the other; flat edges block | sprites + level geometry; confirm in exe | derived | items.png frames 4-7 match the Android ramp_ul/ur/bl/br drawables; levels 1-16 (id 19 at (6,0) and (0,6)) and 1-18 (id 17 at (5,5)) only work with this table |
 | G9 | Star thresholds for W3-W6 ("Next: %d stars"), final survival level duration | 10, 25, ... | disasm (likely a table in .data) | open | |
 | G10 | Tile 22 identity (land mine?) and mine mechanics | mine; stepping/landing on it explodes? | exe on level 3-16 | open | |
 | G11 | Header line 5 (1/2) | dark background? difficulty? bomb frequency tier? | exe W5-1 vs W4-25 | open | |
@@ -31,5 +31,9 @@ Reconciliation tools, in order of cost: (a) **run `legacy/Shooterland Windowed.e
 | G20 | World 6 levels 14-25 and world 7 content do not exist | ship W1-W6-13 and mark the rest "coming soon" or author new levels | user decision | open | |
 | G21 | Pass-through: can a shot cross a cell the other shot will occupy this volley; does a size-2 shooter's second lane use its own landing search | | exe | open | |
 | G22 | Save line 1 meaning; whether best time is stored only when star earned | | exe | open | |
+| G23 | Input model: does the player click a grid cell to aim and fire, move to aim and click to fire, or press a button? Any keyboard control? | pointer move aims both shooters (bottom follows x, right follows y), click fires | exe | open | |
+| G24 | Runtime-only tile ids: are weights 1-3 ids 12-14, the spent weight 15 and the bomb 0 in the original? Does a weight stay on the board after use? | yes to all; items.png shows a blank weight and the Android port has a plain Weight tile | disasm (tile id switch in the draw routine) | open | |
+| G25 | Board and HUD layout: board origin inside the 600x600 play area, shooter positions, HUD text positions and fonts, Rosco's path between stump and piggy bank | board at (20,20), shooters just below/right of it, HUD per supplement.gif, Rosco walks vertically in the HUD panel | exe screenshots | open | |
+| G26 | Green ring sprite (items.png frame 8, tile sheet cell (9,7)): aim or landing indicator, store drag cursor, or something else? | landing-cell indicator | exe | open | |
 
 Decided so far: ship worlds 1 through 6-13 and lock the rest (G20); music via in-browser MIDI synthesis; reconciliation by running the exe plus a Ghidra pass.

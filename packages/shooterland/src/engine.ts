@@ -8,5 +8,11 @@ export type {
   WorldEntry,
 } from './assets/manifest';
 export * from './core';
-export type { GameEvent, GameHandle, GameOptions, StartScene } from './engine/createGame';
+export type {
+  GameDebug,
+  GameEvent,
+  GameHandle,
+  GameOptions,
+  StartScene,
+} from './engine/createGame';
 export { createGame, defaultAssetBaseUrl, PACKAGE_VERSION } from './engine/createGame';
