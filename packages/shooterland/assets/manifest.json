@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "generatedFrom": "legacy/ (Shooterland beta, 2006-04-09)",
+  "images": {
+    "beta": {
+      "path": "sprites/beta.png",
+      "width": 150,
+      "height": 80
+    },
+    "bonus": {
+      "path": "sprites/bonus.png",
+      "width": 300,
+      "height": 155
+    },
+    "bonusbaddies": {
+      "path": "sprites/bonusbaddies.png",
+      "width": 99,
+      "height": 700
+    },
+    "bubbles": {
+      "path": "sprites/bubbles.png",
+      "width": 124,
+      "height": 124
+    },
+    "buttonz": {
+      "path": "sprites/buttonz.png",
+      "width": 108,
+      "height": 31
+    },
+    "checkandstar": {
+      "path": "sprites/checkandstar.png",
+      "width": 2304,
+      "height": 80
+    },
+    "complete": {
+      "path": "sprites/complete.png",
+      "width": 60,
+      "height": 480
+    },
+    "defeat": {
+      "path": "sprites/defeat.png",
+      "width": 60,
+      "height": 360
+    },
+    "explosion": {
+      "path": "sprites/explosion.png",
+      "width": 440,
+      "height": 80
+    },
+    "items": {
+      "path": "sprites/items.png",
+      "width": 40,
+      "height": 360
+    },
+    "logo": {
+      "path": "sprites/logo.png",
+      "width": 409,
+      "height": 227
+    },
+    "menusupplement": {
+      "path": "sprites/menusupplement.png",
+      "width": 340,
+      "height": 165
+    },
+    "mini": {
+      "path": "sprites/mini.png",
+      "width": 120,
+      "height": 560
+    },
+    "mouse": {
+      "path": "sprites/mouse.png",
+      "width": 12,
+      "height": 16
+    },
+    "pause": {
+      "path": "sprites/pause.png",
+      "width": 80,
+      "height": 400
+    },
+    "plusminus": {
+      "path": "sprites/plusminus.png",
+      "width": 18,
+      "height": 9
+    },
+    "raccoon": {
+      "path": "sprites/raccoon.png",
+      "width": 320,
+      "height": 40
+    },
+    "shooterland": {
+      "path": "sprites/shooterland.png",
+      "width": 800,
+      "height": 600
+    },
+    "shooterlandsign": {
+      "path": "sprites/shooterlandsign.png",
+      "width": 60,
+      "height": 600
+    },
+    "shooters": {
+      "path": "sprites/shooters.png",
+      "width": 120,
+      "height": 160
+    },
+    "stumpandmoney": {
+      "path": "sprites/stumpandmoney.png",
+      "width": 40,
+      "height": 80
+    },
+    "suffle": {
+      "path": "sprites/suffle.png",
+      "width": 150,
+      "height": 500
+    },
+    "wood": {
+      "path": "sprites/wood.png",
+      "width": 400,
+      "height": 400
+    }
+  },
+  "fonts": {
+    "font1": {
+      "image": "fonts/font1.png",
+      "metrics": "fonts/font1.json"
+    },
+    "font2": {
+      "image": "fonts/font2.png",
+      "metrics": "fonts/font2.json"
+    },
+    "font3": {
+      "image": "fonts/font3.png",
+      "metrics": "fonts/font3.json"
+    }
+  },
+  "sounds": {
+    "bomb": "sfx/bomb.wav",
+    "combo": "sfx/combo.wav",
+    "pop": "sfx/pop.wav",
+    "shoot": "sfx/shoot.wav",
+    "thingyhit": "sfx/thingyhit.wav"
+  },
+  "music": {
+    "maptheme": "music/maptheme.mid",
+    "titlescreen": "music/titlescreen.mid",
+    "world1": "music/world1.mid",
+    "world2": "music/world2.mid",
+    "world3": "music/world3.mid",
+    "world4": "music/world4.mid",
+    "world5": "music/world5.mid",
+    "world6": "music/world6.mid",
+    "world7": "music/world7.mid"
+  },
+  "worlds": {
+    "1": {
+      "tiles": "worlds/1/tiles.png",
+      "supplement": "worlds/1/supplement.png",
+      "background": "worlds/1/background.png",
+      "backgroundDark": "worlds/1/backgrounddark.png",
+      "map": "worlds/1/map.png"
+    },
+    "2": {
+      "tiles": "worlds/2/tiles.png",
+      "supplement": "worlds/2/supplement.png",
+      "background": "worlds/2/background.png",
+      "backgroundDark": "worlds/2/backgrounddark.png",
+      "map": "worlds/2/map.png"
+    },
+    "3": {
+      "tiles": "worlds/3/tiles.png",
+      "supplement": "worlds/3/supplement.png",
+      "background": "worlds/3/background.png",
+      "backgroundDark": "worlds/3/backgrounddark.png",
+      "map": "worlds/3/map.png"
+    },
+    "4": {
+      "tiles": "worlds/4/tiles.png",
+      "supplement": "worlds/4/supplement.png",
+      "background": "worlds/4/background.png",
+      "backgroundDark": "worlds/4/backgrounddark.png",
+      "map": "worlds/4/map.png"
+    },
+    "5": {
+      "tiles": "worlds/5/tiles.png",
+      "supplement": "worlds/5/supplement.png",
+      "background": "worlds/5/background.png",
+      "backgroundDark": "worlds/5/backgrounddark.png",
+      "map": "worlds/5/map.png"
+    },
+    "6": {
+      "tiles": "worlds/6/tiles.png",
+      "supplement": "worlds/6/supplement.png",
+      "background": "worlds/6/background.png",
+      "backgroundDark": "worlds/6/backgrounddark.png",
+      "map": "worlds/6/map.png"
+    },
+    "7": {
+      "tiles": "worlds/7/tiles.png",
+      "supplement": "worlds/7/supplement.png",
+      "background": "worlds/7/background.png",
+      "backgroundDark": "worlds/7/backgrounddark.png",
+      "map": "worlds/7/map.png"
+    }
+  },
+  "levels": "levels/levels.json",
+  "times": "levels/times.json",
+  "mapNodes": "levels/map-nodes.json"
+}

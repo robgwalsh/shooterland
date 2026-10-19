@@ -12,11 +12,14 @@ import {
   type GameEvent,
   type GameHandle,
   type GameOptions,
+  type StartScene,
 } from '../engine/createGame';
 
 export interface ShooterlandProps {
   /** Base URL (with trailing slash) where the package's `assets/` directory is served. */
   assetBaseUrl?: string | undefined;
+  /** Scene to show after loading. Defaults to the game's normal boot sequence. */
+  startScene?: StartScene | undefined;
   muted?: boolean | undefined;
   /** Pause the simulation while the page is hidden. Default true. */
   pauseWhenHidden?: boolean | undefined;
@@ -55,6 +58,7 @@ const canvasStyle: CSSProperties = {
 export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(function Shooterland(
   {
     assetBaseUrl,
+    startScene,
     muted,
     pauseWhenHidden = true,
     seed,
@@ -112,6 +116,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       },
     };
     if (assetBaseUrl !== undefined) options.assetBaseUrl = assetBaseUrl;
+    if (startScene !== undefined) options.startScene = startScene;
     if (seed !== undefined) options.seed = seed;
     if (muted !== undefined) options.muted = muted;
     try {
@@ -128,7 +133,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       controller.abort();
       handleRef.current = null;
     };
-  }, [assetBaseUrl, seed, muted]);
+  }, [assetBaseUrl, startScene, seed, muted]);
 
   useEffect(() => {
     if (!pauseWhenHidden) return;

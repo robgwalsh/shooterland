@@ -257,9 +257,6 @@ importers:
       pngjs:
         specifier: 7.0.0
         version: 7.0.0
-      wavefile:
-        specifier: 11.0.0
-        version: 11.0.0
     devDependencies:
       '@types/node':
         specifier: 26.6.5
@@ -1358,11 +1355,6 @@ packages:
       jsdom:
         optional: true
 
-  wavefile@11.0.0:
-    resolution: {integrity: sha512-/OBiAALgWU24IG7sC84cDO/KfFuvajWc5Uec0oV2zrpOOZZDgGdOwHwgEzOrwh8jkubBk7PtZfQBIcI1OaE5Ng==}
-    engines: {node: '>=8'}
-    hasBin: true
-
   why-is-node-running@3.2.1:
     resolution: {integrity: sha512-Tb2FUhB4vUsGQlfSquQLYkApkuPAFQXGFzxWKHHumVz2dK+X1RUm/HnID4+TfIGYJ1kTcwOaCk/buYCEJr6YjQ==}
     engines: {node: '>=20.11'}
@@ -2158,8 +2150,6 @@ snapshots:
       '@types/node': 26.6.5
     transitivePeerDependencies:
       - msw
-
-  wavefile@11.0.0: {}
 
   why-is-node-running@3.2.1: {}
 

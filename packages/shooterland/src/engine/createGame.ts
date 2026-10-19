@@ -1,9 +1,12 @@
+import { AssetLoader, type Assets } from '../assets/AssetLoader';
 import { TICK_SECONDS } from '../core/constants';
 import { PointerInput } from '../input/PointerInput';
 import { createGLContext } from '../render/gl';
 import { Renderer } from '../render/Renderer';
 import { Viewport } from '../render/Viewport';
+import { AssetViewerScene } from '../scenes/AssetViewerScene';
 import { BootScene } from '../scenes/BootScene';
+import { LoadingScene } from '../scenes/LoadingScene';
 import { SceneManager } from '../scenes/Scene';
 
 export type GameEvent =
@@ -12,9 +15,16 @@ export type GameEvent =
   | { readonly type: 'paused' }
   | { readonly type: 'resumed' };
 
+/**
+ * Which scene to show once assets are loaded. 'boot' skips asset loading
+ * entirely and shows the plumbing-test scene.
+ */
+export type StartScene = 'assetViewer' | 'boot';
+
 export interface GameOptions {
   /** Base URL (with trailing slash) where the package's `assets/` directory is served. */
   assetBaseUrl?: string | undefined;
+  startScene?: StartScene | undefined;
   /** Resize the canvas backing store to its CSS box automatically. Default true. */
   autoResize?: boolean | undefined;
   /** Upper bound on devicePixelRatio used for the backing store. Default 2. */
@@ -29,7 +39,7 @@ export interface GameOptions {
 
 export interface GameHandle {
   readonly version: string;
-  /** Resolves once assets are loaded and the first scene is running. */
+  /** Resolves once assets are loaded and the first scene is running; rejects if loading fails. */
   readonly ready: Promise<void>;
   pause(): void;
   resume(): void;
@@ -42,12 +52,19 @@ export interface GameHandle {
 
 const MAX_CATCHUP_STEPS = 5;
 
+export const PACKAGE_VERSION: string =
+  typeof __SHOOTERLAND_VERSION__ === 'string' ? __SHOOTERLAND_VERSION__ : 'dev';
+
+/** Where the published package's assets live when no `assetBaseUrl` is given. */
+export function defaultAssetBaseUrl(): string {
+  return `https://cdn.jsdelivr.net/npm/shooterland@${PACKAGE_VERSION}/assets/`;
+}
+
 /**
  * Boots the game on an existing canvas. Owns the GL context, the fixed-step
- * loop, input listeners and the scene stack until `destroy()` is called.
+ * loop, input listeners, assets and the scene stack until `destroy()` is called.
  */
 export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {}): GameHandle {
-  const version = typeof __SHOOTERLAND_VERSION__ === 'string' ? __SHOOTERLAND_VERSION__ : 'dev';
   const emit = (event: GameEvent): void => options.onEvent?.(event);
 
   const viewport = new Viewport();
@@ -55,6 +72,8 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   const renderer = new Renderer(gl, viewport);
   const input = new PointerInput(canvas, viewport);
   const scenes = new SceneManager();
+  const abort = new AbortController();
+  let assets: Assets | null = null;
 
   let destroyed = false;
   let paused = false;
@@ -105,20 +124,51 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     scenes.draw(renderer);
   };
 
-  scenes.go(new BootScene());
+  const startScene = options.startScene ?? 'assetViewer';
+  let ready: Promise<void>;
+  if (startScene === 'boot') {
+    scenes.go(new BootScene());
+    ready = Promise.resolve();
+  } else {
+    const loading = new LoadingScene();
+    scenes.go(loading);
+    const loader = new AssetLoader(gl, options.assetBaseUrl ?? defaultAssetBaseUrl(), abort.signal);
+    ready = loader
+      .loadAll((p) => loading.setProgress(p.loaded, p.total))
+      .then((loaded) => {
+        if (destroyed) {
+          loaded.destroy();
+          return;
+        }
+        assets = loaded;
+        scenes.go(new AssetViewerScene(loaded));
+      })
+      .catch((error: unknown) => {
+        if (destroyed) return;
+        loading.setFailed();
+        const err = error instanceof Error ? error : new Error(String(error));
+        emit({ type: 'error', error: err });
+        throw err;
+      });
+  }
+  ready.then(
+    () => {
+      if (!destroyed) emit({ type: 'ready' });
+    },
+    () => {},
+  );
   rafId = requestAnimationFrame(frame);
-
-  const ready = Promise.resolve().then(() => {
-    if (!destroyed) emit({ type: 'ready' });
-  });
 
   const destroy = (): void => {
     if (destroyed) return;
     destroyed = true;
+    abort.abort();
     cancelAnimationFrame(rafId);
     observer?.disconnect();
     input.destroy();
     scenes.destroy();
+    assets?.destroy();
+    renderer.destroy();
     // The GL context is intentionally left alive: a host (React StrictMode, prop changes)
     // may create a new game on the same canvas, and a lost context cannot be re-acquired.
   };
@@ -126,7 +176,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   options.signal?.addEventListener('abort', destroy, { once: true });
 
   return {
-    version,
+    version: PACKAGE_VERSION,
     ready,
     get paused() {
       return paused;

@@ -8,6 +8,8 @@ const pkgSrc = (p: string): string =>
 export default defineConfig(({ command }) => ({
   plugins: [react()],
   server: { port: 5199, strictPort: true, fs: { allow: ['../..'] } },
+  // Serve the generated game assets at /assets/ (the playground passes assetBaseUrl="/assets/").
+  publicDir: fileURLToPath(new URL('./public', import.meta.url)),
   resolve: {
     // During `vite dev`, point at the package sources for instant reloads.
     // `vite build` goes through the real package `exports` so packaging bugs surface.

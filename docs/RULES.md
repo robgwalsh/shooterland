@@ -1,6 +1,6 @@
 # Shooterland: reconstructed rules
 
-Sources: the tutorial messages embedded in the 152 legacy level files (quoted by level id, e.g. 1-12), strings in the legacy exe, and the partial Android port. See [FORMATS.md](FORMATS.md) for file layouts and [GAPS.md](GAPS.md) for what is still unverified.
+Sources: the tutorial messages embedded in the 151 legacy level files (quoted by level id, e.g. 1-12), strings in the legacy exe, and the partial Android port. See [FORMATS.md](FORMATS.md) for file layouts and [GAPS.md](GAPS.md) for what is still unverified.
 
 ## Screens (from exe strings + graphics)
 

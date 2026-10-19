@@ -28,7 +28,7 @@ test('boots, draws the virtual area and letterboxes wider canvases', async ({ pa
   });
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/');
+  await page.goto('/?scene=boot');
   await expect(page.locator('canvas')).toBeVisible();
   await expect(page.getByText('ready')).toBeVisible();
 
