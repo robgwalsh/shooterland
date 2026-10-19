@@ -45,7 +45,7 @@ describe('legacy level files', () => {
     expect(data.bottomShooterSize).toBeLessThanOrEqual(3);
     expect(data.rightShooterSize).toBeGreaterThanOrEqual(1);
     expect(data.rightShooterSize).toBeLessThanOrEqual(3);
-    expect([1, 2]).toContain(data.unknownFlag);
+    expect([1, 2]).toContain(data.roscoStealAmount);
     expect(data.timeToBeat).toBeGreaterThan(0);
   });
 
@@ -57,7 +57,10 @@ describe('legacy level files', () => {
     });
     expect(data.bottomShooterSize).toBe(1);
     expect(data.lairDelayMs).toBe(30000);
-    expect(data.speedUpIntervalMs).toBe(26000);
+    expect(data.roscoPeriodMs).toBe(26000);
+    expect(data.roscoStealAmount).toBe(1);
+    expect(data.roscoSpeedUpPercent).toBe(80);
+    expect(data.roscoSpeedUpIntervalMs).toBe(30000);
     expect(cellAt(data.cells, 4, 2)).toBe(TileId.Crony);
     expect(cellAt(data.cells, 4, 1)).toBe(TileId.Thingie1);
     expect(cellAt(data.cells, 3, 2)).toBe(TileId.Thingie1);

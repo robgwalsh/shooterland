@@ -1,29 +1,28 @@
 /**
- * One level as parsed from a legacy `.sll` file (see docs/FORMATS.md).
- * Field names for the header/footer values whose meaning is unverified carry
- * the gap id from docs/GAPS.md.
+ * One level as parsed from a legacy `.sll` file. Field meanings were read
+ * from the exe's loader and Rosco routine (docs/FORMATS.md).
  */
 export interface LevelData {
   /** "world-level", e.g. "1-12". */
   readonly id: string;
   readonly world: number;
   readonly level: number;
-  /** Line 1: size of Mary's (bottom) shooter, 1..3. */
+  /** Line 1: size of Mary's (bottom) bar, 1..3. */
   readonly bottomShooterSize: number;
-  /** Line 2: size of Poindexter's (right) shooter, 1..3. */
+  /** Line 2: size of Poindexter's (right) bar, 1..3. */
   readonly rightShooterSize: number;
-  /** Line 3: delay before Rosco first leaves his lair, in ms (medium confidence). */
+  /** Line 3: delay before Rosco first leaves his stump, in ms. */
   readonly lairDelayMs: number;
-  /** Line 4: interval of the lair countdown that speeds Rosco up, in ms (medium confidence). */
-  readonly speedUpIntervalMs: number;
-  /** Line 5: 1 or 2, meaning unknown (GAP:G11). */
-  readonly unknownFlag: number;
+  /** Line 4: Rosco's round trip (stump to piggy bank and back), in ms. */
+  readonly roscoPeriodMs: number;
+  /** Line 5: dollars Rosco takes per visit (1 or 2). */
+  readonly roscoStealAmount: number;
   /** Lines 6-174: 13x13 legacy tile ids, row-major, top row first; -1 = empty. */
   readonly cells: readonly number[];
-  /** Line 175: 70..98, mostly 80, meaning unknown (GAP:G12). */
-  readonly unknownPercent: number;
-  /** Line 176: 10000..70000, probably ms, meaning unknown (GAP:G12). */
-  readonly unknownMs: number;
+  /** Line 175: each speed-up multiplies the period by this percentage (70..98). */
+  readonly roscoSpeedUpPercent: number;
+  /** Line 176: ms between speed-ups, shown as the countdown. */
+  readonly roscoSpeedUpIntervalMs: number;
   /** Line 177 decoded: spaces and newlines restored, trailing END removed; "" for placeholders. */
   readonly message: string;
   /** Seconds to beat for the star, from times.dat. */

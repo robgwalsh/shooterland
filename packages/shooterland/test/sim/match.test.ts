@@ -1,52 +1,63 @@
 import { describe, expect, it } from 'vitest';
+import { GRID_SIZE } from '../../src/core/constants';
 import { Grid } from '../../src/core/grid';
-import { findCombos } from '../../src/core/sim/match';
+import { collectCombo, countGroup, findCombos } from '../../src/core/sim/match';
+import type { CellView } from '../../src/core/sim/projectile';
 import { TileId } from '../../src/core/types';
 
-describe('findCombos', () => {
-  it('finds a horizontal line of three', () => {
-    const g = new Grid();
-    for (const c of [3, 4, 5]) g.set(c, 6, TileId.Thingie2);
-    const combos = findCombos(g, [{ col: 5, row: 6 }]);
-    expect(combos).toHaveLength(1);
-    expect(combos[0]?.kind).toBe(TileId.Thingie2);
-    expect(combos[0]?.cells).toHaveLength(3);
-  });
+function board(
+  cells: (readonly [number, number, number])[],
+  dying: [number, number][] = [],
+): CellView {
+  const grid = new Grid();
+  for (const [col, row, id] of cells) grid.set(col, row, id);
+  const dead = new Set(dying.map(([c, r]) => r * GRID_SIZE + c));
+  return { get: (c, r) => grid.get(c, r), isDying: (c, r) => dead.has(r * GRID_SIZE + c) };
+}
 
-  it('ignores pairs and diagonals', () => {
-    const g = new Grid();
-    g.set(3, 6, TileId.Thingie2);
-    g.set(4, 6, TileId.Thingie2);
-    g.set(5, 7, TileId.Thingie2);
-    expect(findCombos(g, [{ col: 4, row: 6 }])).toHaveLength(0);
-  });
-
-  it('finds L and plus shapes of mixed length', () => {
-    const g = new Grid();
-    g.set(4, 1, TileId.Thingie1);
-    g.set(3, 2, TileId.Thingie1);
-    g.set(4, 2, TileId.Crony);
-    g.set(5, 2, TileId.Thingie1);
-    g.set(4, 3, TileId.Thingie1);
-    // The plus around the crony is four separate singles: no combo yet.
-    expect(findCombos(g, [{ col: 4, row: 1 }])).toHaveLength(0);
-    // Add a row that connects two arms through the top.
-    g.set(3, 1, TileId.Thingie1);
-    g.set(5, 1, TileId.Thingie1);
-    const combos = findCombos(g, [{ col: 4, row: 1 }]);
-    expect(combos).toHaveLength(1);
-    expect(combos[0]?.cells).toHaveLength(5);
-  });
-
-  it('returns one group when two seeds share it and separate groups otherwise', () => {
-    const g = new Grid();
-    for (const c of [0, 1, 2]) g.set(c, 0, TileId.Thingie3);
-    for (const c of [10, 11, 12]) g.set(c, 12, TileId.Thingie4);
-    const combos = findCombos(g, [
-      { col: 0, row: 0 },
-      { col: 2, row: 0 },
-      { col: 12, row: 12 },
+describe('combo matching', () => {
+  it('finds orthogonally connected groups of at least the minimum', () => {
+    const v = board([
+      [2, 2, TileId.Thingie1],
+      [3, 2, TileId.Thingie1],
+      [4, 2, TileId.Thingie1],
+      [4, 3, TileId.Thingie1],
+      [6, 6, TileId.Thingie2],
+      [7, 7, TileId.Thingie2], // diagonal: not connected
     ]);
-    expect(combos.map((c) => c.kind)).toEqual([TileId.Thingie3, TileId.Thingie4]);
+    const combos = findCombos(v, 3);
+    expect(combos.map((c) => c.size)).toEqual([4, 4, 4, 4]); // every member of the group is a seed
+    expect(countGroup(v, 6, 6, TileId.Thingie2, false)).toBe(1);
+    expect(findCombos(v, 5)).toEqual([]);
+  });
+
+  it('ignores cells being destroyed unless asked to include them', () => {
+    const v = board(
+      [
+        [2, 2, TileId.Thingie1],
+        [3, 2, TileId.Thingie1],
+        [4, 2, TileId.Thingie1],
+      ],
+      [[4, 2]],
+    );
+    expect(countGroup(v, 2, 2, TileId.Thingie1, false)).toBe(2);
+    expect(countGroup(v, 2, 2, TileId.Thingie1, true)).toBe(3);
+    // A dying seed still counts itself, as the exe does.
+    expect(countGroup(v, 4, 2, TileId.Thingie1, false)).toBe(3);
+  });
+
+  it('collects the cleared cells and flags their four neighbours', () => {
+    const v = board([
+      [2, 2, TileId.Thingie1],
+      [3, 2, TileId.Thingie1],
+      [4, 2, TileId.Thingie1],
+    ]);
+    const { cells, flagged } = collectCombo(v, 2, 2, TileId.Thingie1);
+    expect(cells).toHaveLength(3);
+    const at = (c: number, r: number): number => flagged[r * GRID_SIZE + c] ?? 0;
+    expect(at(2, 1)).toBe(1);
+    expect(at(5, 2)).toBe(1);
+    expect(at(1, 2)).toBe(1);
+    expect(at(1, 1)).toBe(0); // diagonal corner is not adjacent
   });
 });

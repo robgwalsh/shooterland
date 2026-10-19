@@ -7,11 +7,10 @@ export interface GridPos {
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
 /**
- * Tile ids. The ones that appear in the legacy `.sll` files keep their exact
- * numbers so levels round-trip. Ids 0 and 12..15 never appear in level files;
- * they are assigned here to the runtime-only items in the order of the store
- * sheet (`items.png`: weights 1-3, blank weight) and the tile sheet's bomb row,
- * which is an inference (docs/GAPS.md G6/G8).
+ * Tile ids, exactly as the original uses them (docs/FORMATS.md). Ids 0 and
+ * 12..15 never appear in level files: 0 is a landed bowling bomb during its
+ * blast, 12..14 are the three weights the store sells and 15 is an unsold
+ * strength-998 weight (docs/GAPS.md G24).
  */
 export const TileId = {
   Empty: -1,
@@ -30,8 +29,8 @@ export const TileId = {
   Weight1: 12,
   Weight2: 13,
   Weight3: 14,
-  /** A weight that has already pushed and crushed, left on the board. */
-  SpentWeight: 15,
+  /** The fourth weight in `items.png`: strength 998, never sold or placed by the original. */
+  HeavyWeight: 15,
   /** Ramps: quarter-curves named by their two open edges. */
   RampTopLeft: 16,
   RampTopRight: 17,
@@ -39,7 +38,6 @@ export const TileId = {
   RampBottomRight: 19,
   GreyBlock: 20,
   BrownBlock: 21,
-  /** GAP:G10 - most likely the land mine. */
   Mine: 22,
   CronyBlock: 23,
   CrazyBlock: 24,
@@ -54,8 +52,18 @@ export const ENEMY_KINDS: readonly EnemyKind[] = ['crony', 'crazy', 'fatty', 'fa
 
 export type ShooterSide = 'bottom' | 'right';
 
-/** Store items, as the tile id they load into a shooter. */
+/**
+ * Anything the store can load into a lane: a bomb, a copy of a thingy on the
+ * board, a weight or a ramp (docs/RULES.md "Store").
+ */
 export type ItemKind =
+  | typeof TileId.Bomb
+  | typeof TileId.Thingie1
+  | typeof TileId.Thingie2
+  | typeof TileId.Thingie3
+  | typeof TileId.Thingie4
+  | typeof TileId.Thingie5
+  | typeof TileId.Thingie6
   | typeof TileId.Weight1
   | typeof TileId.Weight2
   | typeof TileId.Weight3

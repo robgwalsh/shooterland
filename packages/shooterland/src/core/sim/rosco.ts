@@ -1,82 +1,147 @@
-import { TICK_RATE, TICK_SECONDS } from '../constants';
+import { TICK_RATE } from '../constants';
 
-export type RoscoPhase = 'lair' | 'toPiggy' | 'toStump';
-export type RoscoEvent = 'emerged' | 'arrived' | 'speedUp';
+export type RoscoEvent = 'emerged' | 'speedUp' | 'stole';
+export type RoscoFacing = 'left' | 'down' | 'up' | 'right';
 
-function msToTicks(ms: number): number {
+export interface RoscoTiming {
+  readonly lairDelayMs: number;
+  readonly roscoPeriodMs: number;
+  readonly roscoStealAmount: number;
+  readonly roscoSpeedUpPercent: number;
+  readonly roscoSpeedUpIntervalMs: number;
+}
+
+export function msToTicks(ms: number): number {
   return Math.max(0, Math.round((ms / 1000) * TICK_RATE));
 }
 
+/** Pixels Rosco walks along each edge of the board (560 in the exe). */
+export const ROSCO_EDGE_PX = 560;
+
 /**
- * Rosco the raccoon (tutorials 1-3 and 1-7): waits in his stump for the
- * level's lair delay, then walks to the piggy bank, steals $1 and walks back,
- * forever. A separate countdown next to the lair speeds him up each time it
- * reaches zero. Arriving at an empty bank loses the level.
- * Exact speeds and the speed-up factor are unverified (docs/GAPS.md G14).
- * Timers count whole ticks so the simulation stays exactly reproducible.
+ * Rosco the raccoon, as `FUN_00409e61` runs him: after the lair delay he
+ * repeats a trip of `roscoPeriodMs`, a quarter of it leftwards along the top
+ * edge from his stump, a quarter down the left edge to the piggy bank, where he
+ * takes `roscoStealAmount` dollars, then back the same way. Every
+ * `roscoSpeedUpIntervalMs` the period shrinks to `roscoSpeedUpPercent` of
+ * itself (never below `minPeriodMs`) and the trip restarts from the stump.
+ * Everything counts in whole ticks so the simulation stays reproducible.
  */
 export class Rosco {
-  phase: RoscoPhase = 'lair';
-  /** 0 at the stump, 1 at the piggy bank. */
-  position = 0;
-  /** Trips per second multiplier; grows at every speed-up. */
-  speed = 1;
-  /** Ticks left before he first leaves the lair. */
-  lairTicks: number;
-  /** Ticks left on the speed-up countdown (runs once he has emerged). */
-  speedUpTicks: number;
+  emerged = false;
+  periodMs: number;
+  /** Trips completed or in progress since he emerged, for display. */
   speedUps = 0;
-  private readonly speedUpIntervalTicks: number;
+  /** Position along the margins in pixels: x along the top edge, y along the left edge. */
+  x = ROSCO_EDGE_PX;
+  y = 0;
+  facing: RoscoFacing = 'left';
+  /** 0 or 1, toggling every 425 ms as in the exe. */
+  walkFrame = 0;
+  readonly stealAmount: number;
+  private readonly lairTicks: number;
+  private readonly intervalTicks: number;
+  private readonly percent: number;
+  private readonly minPeriodMs: number;
+  private periodTicks: number;
+  private cycleStart = 0;
+  private speedUpRef = 0;
+  private stealArmed = false;
+  private speedUpArmed = false;
+  private countdown = 0;
 
-  constructor(
-    lairDelayMs: number,
-    speedUpIntervalMs: number,
-    private readonly tripSeconds: number,
-    private readonly speedUpFactor: number,
-  ) {
-    this.lairTicks = msToTicks(lairDelayMs);
-    this.speedUpIntervalTicks = Math.max(1, msToTicks(speedUpIntervalMs));
-    this.speedUpTicks = this.speedUpIntervalTicks;
+  constructor(timing: RoscoTiming, minPeriodMs = 1000) {
+    this.lairTicks = msToTicks(timing.lairDelayMs);
+    this.periodMs = Math.max(1, timing.roscoPeriodMs);
+    this.periodTicks = Math.max(1, msToTicks(this.periodMs));
+    this.intervalTicks = msToTicks(timing.roscoSpeedUpIntervalMs);
+    this.percent = timing.roscoSpeedUpPercent;
+    this.stealAmount = timing.roscoStealAmount;
+    this.minPeriodMs = minPeriodMs;
+    this.countdown = Math.floor(this.intervalTicks / TICK_RATE);
   }
 
-  /** Advances one tick and reports what happened. */
-  tick(): RoscoEvent[] {
+  /** Advances to tick `now` (ticks since the level started) and reports what happened. */
+  tick(now: number): RoscoEvent[] {
     const out: RoscoEvent[] = [];
-    if (this.phase === 'lair') {
-      this.lairTicks--;
-      if (this.lairTicks > 0) return out;
-      this.lairTicks = 0;
-      this.phase = 'toPiggy';
+    if (!this.emerged) {
+      if (now < this.lairTicks) return out;
+      this.emerged = true;
+      this.cycleStart = this.lairTicks;
+      this.speedUpRef = this.lairTicks;
       out.push('emerged');
     }
-    this.speedUpTicks--;
-    if (this.speedUpTicks <= 0) {
-      this.speedUpTicks = this.speedUpIntervalTicks;
-      this.speed *= this.speedUpFactor;
-      this.speedUps++;
-      out.push('speedUp');
-    }
-    const step = (TICK_SECONDS / this.tripSeconds) * this.speed;
-    if (this.phase === 'toPiggy') {
-      this.position += step;
-      if (this.position >= 1) {
-        this.position = 1;
-        this.phase = 'toStump';
-        out.push('arrived');
+    const c = (now - this.cycleStart) % this.periodTicks;
+    const since = now - this.speedUpRef;
+    const quarter = Math.floor(this.periodTicks / 4);
+    const half = Math.floor(this.periodTicks / 2);
+    const threeQuarters = this.periodTicks * 0.75;
+    const q = Math.max(1, quarter);
+    this.walkFrame = Math.floor((c * 1000) / TICK_RATE / 425) & 1;
+
+    if (c < quarter) {
+      this.stealArmed = true;
+      this.facing = 'left';
+      this.x = ROSCO_EDGE_PX - (ROSCO_EDGE_PX * c) / q;
+      this.y = 0;
+      if (since > this.intervalTicks && this.speedUpArmed) {
+        this.periodMs = Math.max(
+          this.minPeriodMs,
+          Math.floor((this.periodMs * this.percent) / 100),
+        );
+        this.periodTicks = Math.max(1, msToTicks(this.periodMs));
+        this.speedUpRef = now;
+        this.cycleStart = now;
+        this.speedUpArmed = false;
+        this.speedUps++;
+        this.x = ROSCO_EDGE_PX;
+        out.push('speedUp');
       }
-    } else if (this.phase === 'toStump') {
-      this.position -= step;
-      if (this.position <= 0) {
-        this.position = 0;
-        this.phase = 'toPiggy';
+    } else if (c < half) {
+      this.stealArmed = true;
+      this.facing = 'down';
+      this.x = 0;
+      this.y = (ROSCO_EDGE_PX * (c - quarter)) / q;
+    } else if (c < threeQuarters) {
+      if (this.stealArmed) {
+        this.stealArmed = false;
+        out.push('stole');
       }
+      this.facing = 'up';
+      this.x = 0;
+      this.y = ROSCO_EDGE_PX - (ROSCO_EDGE_PX * (c - half)) / q;
+    } else {
+      if (this.stealArmed) {
+        this.stealArmed = false;
+        out.push('stole');
+      }
+      this.facing = 'right';
+      this.x = (ROSCO_EDGE_PX * (c - threeQuarters)) / q;
+      this.y = 0;
+      if (since > this.intervalTicks) this.speedUpArmed = true;
     }
+    this.countdown = Math.max(
+      0,
+      Math.floor((this.intervalTicks - (now - this.speedUpRef)) / TICK_RATE),
+    );
     return out;
   }
 
-  /** Whole seconds shown on the lair countdown. */
+  /** Whole seconds until the next speed-up, as the HUD shows once he has emerged. */
   get countdownSeconds(): number {
-    const ticks = this.phase === 'lair' ? this.lairTicks : this.speedUpTicks;
-    return Math.ceil(ticks / TICK_RATE);
+    return this.countdown;
+  }
+
+  /** Values that affect future ticks, for hashing. */
+  get hashInputs(): number[] {
+    return [
+      this.emerged ? 1 : 0,
+      this.periodMs,
+      this.periodTicks,
+      this.cycleStart,
+      this.speedUpRef,
+      this.stealArmed ? 1 : 0,
+      this.speedUpArmed ? 1 : 0,
+    ];
   }
 }

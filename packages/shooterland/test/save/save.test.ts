@@ -25,10 +25,11 @@ const levels: LevelData[] = JSON.parse(
 const thresholds = DEFAULT_RULES.starThresholds;
 
 describe('legacy .sav import', () => {
-  it('reads File3: worlds 1 and 2 cleared, 138 wins', () => {
+  it('reads File3: level 21 of world 2 reached, 138 wins', () => {
     const save = parseLegacySave(readFileSync(join(LEGACY, 'Save/File3.sav'), 'latin1'));
     expect(save.world).toBe(2);
-    expect(save.level).toBe(4);
+    expect(save.level).toBe(21);
+    expect(save.bestTimes[levelIndex(1, 1)]).toBe(4);
     expect(save.wins).toBe(138);
     expect(save.losses).toBe(55);
     expect(save.shots).toBe(5290);
@@ -36,11 +37,16 @@ describe('legacy .sav import', () => {
     expect(save.comboPieces).toBe(8732);
     expect(save.secondsPlayed).toBe(15525);
     expect(save.bestTimes[levelIndex(1, 1)]).toBeGreaterThan(0);
-    expect(save.bestTimes[levelIndex(2, 19)]).toBeGreaterThan(0);
-    expect(save.bestTimes[levelIndex(2, 20)]).toBe(0);
+    expect(save.bestTimes[levelIndex(2, 20)]).toBeGreaterThan(0);
+    expect(save.bestTimes[levelIndex(2, 21)]).toBe(0);
     const stats = computeStats(save, levels);
     expect(stats.averageComboSize).toBeCloseTo(3.19, 1);
     expect(stats.shotsPerCombo).toBeCloseTo(1.93, 1);
+    expect(stats.winPercent).toBe(71);
+    // (71-30)*0.04=1.64, (2737/5290-0.3)*5.9375=1.29, (3.19-3)*11.875=2.26, stars/46*2.375 (clamped), all /6*100.
+    expect(stats.slRating).toBeGreaterThan(80);
+    expect(stats.slRating).toBeLessThan(130);
+    expect(stats.completePercent).toBeGreaterThan(5);
   });
 });
 
@@ -60,7 +66,7 @@ describe('progression', () => {
     recordResult(save, l11, 'won', { seconds: 9, shots: 5, combos: 2, comboPieces: 6 });
     expect(isLevelUnlocked(save, levels, thresholds, 1, 2)).toBe(true);
     expect(countStars(save, levels)).toBe(1);
-    // Clear all of world 1 within the time to beat: 25 stars opens world 2.
+    // Clear all of world 1 within the time to beat: 25 stars is past the 10 world 2 needs.
     for (const l of levels.filter((l) => l.world === 1)) {
       recordResult(save, l, 'won', { seconds: 1, shots: 1, combos: 1, comboPieces: 3 });
     }

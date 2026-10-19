@@ -86,12 +86,11 @@ export function tileSheetRect(id: number, frame: number): SpriteRect | null {
 }
 
 /**
- * `items.png` (40x360): weights 1-3, blank (spent) weight, the four ramps in
- * id order 16-19, and the green ring.
+ * `items.png` (40x360): weights 1-3, the unsold heavy weight, the four ramps in
+ * id order 16-19, and the green ring (the exe draws ids 12-19 from row id-12).
  */
 export function itemRect(id: number): SpriteRect | null {
   if (isWeight(id)) return rect(0, (id - TileId.Weight1) * T);
-  if (id === TileId.SpentWeight) return rect(0, 3 * T);
   if (isRamp(id)) return rect(0, (4 + id - TileId.RampTopLeft) * T);
   return null;
 }

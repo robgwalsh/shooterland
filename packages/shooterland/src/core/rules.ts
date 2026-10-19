@@ -2,8 +2,9 @@ import type { EnemyKind } from './types';
 import { TileId } from './types';
 
 /**
- * How each enemy can be killed. `comboMin` is the smallest combo that kills it
- * when adjacent (null = combos never kill it).
+ * How each enemy can be killed (the pause-screen chart). `comboMin` is the
+ * smallest adjacent combo that kills it (null = never); `mine` is informational,
+ * since anything pushed into a mine is destroyed.
  */
 export interface EnemyRule {
   readonly comboMin: number | null;
@@ -13,76 +14,76 @@ export interface EnemyRule {
 }
 
 /**
- * Every tunable gameplay constant. Values whose original behaviour is not
- * verified carry the gap id from docs/GAPS.md; change them there first.
+ * Every gameplay constant. All values were read from the disassembled exe
+ * (docs/RULES.md, docs/GAPS.md); the fields exist so a consumer can still
+ * tune them.
  */
 export interface Rules {
-  /** GAP:G2 - projectile speed in cells per second. */
-  readonly projectileCellsPerSecond: number;
-  /** GAP:G2 - whether a new volley may be fired while shots are in flight. */
+  /** Cells a shot advances per 60 Hz tick (the exe moves one cell per frame). */
+  readonly projectileCellsPerTick: number;
+  /** Whether a new volley may be fired while shots are in flight (the exe: no). */
   readonly fireWhileInFlight: boolean;
-  /** Money for a 3-combo (tutorial 1-2). */
-  readonly comboBaseMoney: number;
-  /** Money per thingie beyond three (tutorial 1-2). */
-  readonly comboExtraMoney: number;
-  /** GAP:G3 - which cells next to a cleared combo count as "adjoining" an enemy. */
-  readonly enemyAdjacency: 4 | 8;
-  /** GAP:G4 - kill rules per enemy; crony/crazy/fatty from tutorials, the rest guessed. */
+  /** Smallest group that clears, and the larger minimum the exe uses in world 7. */
+  readonly comboMin: number;
+  readonly comboMinFinalWorld: number;
+  /** Kill table per enemy. */
   readonly enemies: Readonly<Record<EnemyKind, EnemyRule>>;
   /** Number of thingie kinds in rotation (the tile sheets have six). */
   readonly thingieKinds: number;
-  /**
-   * GAP:G12/G15 - chance that a loaded shot is a bowling bomb. When
-   * `bombChanceFromLevel` is set, the level's footer percent is read as the
-   * thingie chance (so 80 means 20% bombs); otherwise `bombChance` applies.
-   */
-  readonly bombChanceFromLevel: boolean;
+  /** Chance that a lane's next item is a bowling bomb (`rand() % 20 == 0`). */
   readonly bombChance: number;
-  /** GAP:G5 - store prices. */
+  /** Store prices by item id; thingie copies and bombs included. */
   readonly prices: Readonly<Record<number, number>>;
-  /** GAP:G5 - money at the start of a level. */
+  /** Money at the start of a level (the exe resets it to 0). */
   readonly startingMoney: number;
-  /** GAP:G14 - Rosco's walk between stump and piggy bank, in seconds, before any speed-up. */
-  readonly roscoTripSeconds: number;
-  /** GAP:G14 - multiplier applied to Rosco's speed each time the lair countdown ends. */
-  readonly roscoSpeedUpFactor: number;
-  /** Survival levels (no enemies) are won after the level's time-to-beat (exe string). */
-  readonly survivalLevels: boolean;
+  /** Ticks a destroyed tile stays on the board, passable, before it is removed (11 frames of 56 ms). */
+  readonly destroyTicks: number;
   /**
-   * GAP:G9 - stars needed to enter each world (index = world number). 10 and 25
-   * come from tutorials 1-25 and 2-25; the rest are guesses.
+   * Opening the store inserts a blank slot in front of every lane and a
+   * purchase only fills one, so the other lanes fire nothing on the next
+   * volley. True reproduces the exe (docs/GAPS.md G27); false removes the
+   * blanks from the other lanes when something is bought.
    */
+  readonly storeBlanksOtherLanes: boolean;
+  /** Rosco's period never drops below this after a speed-up. */
+  readonly roscoMinPeriodMs: number;
+  /** Stars needed to enter each world (index = world number). */
   readonly starThresholds: readonly number[];
 }
 
 export const DEFAULT_RULES: Rules = {
-  projectileCellsPerSecond: 35,
+  projectileCellsPerTick: 1,
   fireWhileInFlight: false,
-  comboBaseMoney: 1,
-  comboExtraMoney: 1,
-  enemyAdjacency: 8,
+  comboMin: 3,
+  comboMinFinalWorld: 4,
   enemies: {
     crony: { comboMin: 3, bomb: true, weight: true, mine: true },
     crazy: { comboMin: null, bomb: true, weight: true, mine: true },
     fatty: { comboMin: 4, bomb: false, weight: true, mine: true },
-    fangie: { comboMin: null, bomb: true, weight: true, mine: true },
-    skully: { comboMin: null, bomb: false, weight: true, mine: true },
+    fangie: { comboMin: 4, bomb: false, weight: false, mine: true },
+    skully: { comboMin: null, bomb: false, weight: false, mine: true },
   },
   thingieKinds: 6,
-  bombChanceFromLevel: true,
-  bombChance: 0.2,
+  bombChance: 1 / 20,
   prices: {
     [TileId.Weight1]: 2,
     [TileId.Weight2]: 3,
     [TileId.Weight3]: 4,
+    [TileId.Bomb]: 3,
     [TileId.RampTopLeft]: 2,
     [TileId.RampTopRight]: 2,
     [TileId.RampBottomLeft]: 2,
     [TileId.RampBottomRight]: 2,
+    [TileId.Thingie1]: 3,
+    [TileId.Thingie2]: 3,
+    [TileId.Thingie3]: 3,
+    [TileId.Thingie4]: 3,
+    [TileId.Thingie5]: 3,
+    [TileId.Thingie6]: 3,
   },
   startingMoney: 0,
-  roscoTripSeconds: 5,
-  roscoSpeedUpFactor: 1.25,
-  survivalLevels: true,
-  starThresholds: [0, 0, 10, 25, 40, 55, 70, 90],
+  destroyTicks: 37,
+  storeBlanksOtherLanes: true,
+  roscoMinPeriodMs: 1000,
+  starThresholds: [0, 0, 10, 30, 50, 75, 100, 150],
 };

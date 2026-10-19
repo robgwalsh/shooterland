@@ -1,127 +1,153 @@
 import { describe, expect, it } from 'vitest';
+import { GRID_SIZE } from '../../src/core/constants';
 import { Grid } from '../../src/core/grid';
-import { spawnProjectile, stepProjectile } from '../../src/core/sim/projectile';
+import { type CellView, isFree, nextCell, spawnProjectile } from '../../src/core/sim/projectile';
+import { walkWeightPath } from '../../src/core/sim/weight';
 import { TileId } from '../../src/core/types';
 
-/** Steps until the projectile finishes; returns the final result and cells visited. */
-function fly(grid: Grid, shooter: 'bottom' | 'right', lane: number, ammo: number) {
-  const p = spawnProjectile(1, shooter, lane, ammo);
-  for (let i = 0; i < 100; i++) {
-    const r = stepProjectile(grid, p);
-    if (r.type !== 'moved' && r.type !== 'deflected') return { result: r, p };
-  }
-  throw new Error('projectile never settled');
+function board(cells: (readonly [number, number, number])[], dying: GridPos[] = []): CellView {
+  const grid = new Grid();
+  for (const [col, row, id] of cells) grid.set(col, row, id);
+  const dead = new Set(dying.map((p) => p.row * GRID_SIZE + p.col));
+  return {
+    get: (c, r) => grid.get(c, r),
+    isDying: (c, r) => dead.has(r * GRID_SIZE + c),
+  };
 }
+type GridPos = { col: number; row: number };
 
-describe('projectile stepping', () => {
-  it('flies up an empty column and lands in the top row', () => {
-    const { result } = fly(new Grid(), 'bottom', 4, TileId.Thingie1);
-    expect(result).toEqual({ type: 'land', at: { col: 4, row: 0 } });
+describe('nextCell', () => {
+  it('moves one cell into free space and stops before an obstacle', () => {
+    const v = board([[4, 5, TileId.GreyBlock]]);
+    expect(nextCell(v, 4, 8, 'up', true, true)).toEqual({ col: 4, row: 7, dir: 'up' });
+    expect(nextCell(v, 4, 6, 'up', true, true)).toEqual({ col: 4, row: 6, dir: 'up' });
+    expect(nextCell(v, 4, 0, 'up', true, true)).toEqual({ col: 4, row: 0, dir: 'up' }); // edge
   });
 
-  it('flies left along an empty row and lands in the left column', () => {
-    const { result } = fly(new Grid(), 'right', 7, TileId.Thingie2);
-    expect(result).toEqual({ type: 'land', at: { col: 0, row: 7 } });
+  it('enters the board from the muzzle cell outside it', () => {
+    const v = board([]);
+    const p = spawnProjectile(1, 'bottom', 0, 6, TileId.Thingie1);
+    expect([p.col, p.row, p.dir]).toEqual([6, 13, 'up']);
+    expect(nextCell(v, p.col, p.row, p.dir, true, true)).toEqual({ col: 6, row: 12, dir: 'up' });
+    const q = spawnProjectile(2, 'right', 1, 2, TileId.Thingie1);
+    expect([q.col, q.row, q.dir]).toEqual([13, 3, 'left']);
   });
 
-  it('stops in the cell before the first obstacle', () => {
-    const g = new Grid();
-    g.set(4, 5, TileId.GreyBlock);
-    expect(fly(g, 'bottom', 4, TileId.Thingie1).result).toEqual({
-      type: 'land',
-      at: { col: 4, row: 6 },
-    });
-    g.set(2, 7, TileId.Crony);
-    expect(fly(g, 'right', 7, TileId.Thingie1).result).toEqual({
-      type: 'land',
-      at: { col: 3, row: 7 },
-    });
+  it('passes through cells whose contents are being destroyed, and into mines', () => {
+    const v = board([[4, 5, TileId.Crony]], [{ col: 4, row: 5 }]);
+    expect(nextCell(v, 4, 6, 'up', true, true)).toEqual({ col: 4, row: 5, dir: 'up' });
+    const m = board([[4, 5, TileId.Mine]]);
+    expect(isFree(m, 4, 5, true)).toBe(true);
+    expect(isFree(m, 4, 5, false)).toBe(false);
+    expect(nextCell(m, 4, 6, 'up', true, true)).toEqual({ col: 4, row: 5, dir: 'up' });
   });
 
-  it('is lost when its first cell is blocked', () => {
-    const g = new Grid();
-    g.set(4, 12, TileId.GreyBlock);
-    expect(fly(g, 'bottom', 4, TileId.Thingie1).result).toEqual({ type: 'lost' });
+  it('deflects through ramps in one step, exactly as the exe table says', () => {
+    // Moving up: 18 turns left, 19 turns right.
+    expect(nextCell(board([[4, 5, TileId.RampBottomLeft]]), 4, 6, 'up', true, true)).toEqual({
+      col: 3,
+      row: 5,
+      dir: 'left',
+    });
+    expect(nextCell(board([[4, 5, TileId.RampBottomRight]]), 4, 6, 'up', true, true)).toEqual({
+      col: 5,
+      row: 5,
+      dir: 'right',
+    });
+    // Moving left: 17 turns up, 19 turns down.
+    expect(nextCell(board([[4, 5, TileId.RampTopRight]]), 5, 5, 'left', true, true)).toEqual({
+      col: 4,
+      row: 4,
+      dir: 'up',
+    });
+    expect(nextCell(board([[4, 5, TileId.RampBottomRight]]), 5, 5, 'left', true, true)).toEqual({
+      col: 4,
+      row: 6,
+      dir: 'down',
+    });
+    // Moving down: 16 turns left, 17 turns right. Moving right: 16 turns up, 18 turns down.
+    expect(nextCell(board([[4, 5, TileId.RampTopLeft]]), 4, 4, 'down', true, true).dir).toBe(
+      'left',
+    );
+    expect(nextCell(board([[4, 5, TileId.RampTopRight]]), 4, 4, 'down', true, true).dir).toBe(
+      'right',
+    );
+    expect(nextCell(board([[4, 5, TileId.RampTopLeft]]), 3, 5, 'right', true, true).dir).toBe('up');
+    expect(nextCell(board([[4, 5, TileId.RampBottomLeft]]), 3, 5, 'right', true, true).dir).toBe(
+      'down',
+    );
   });
 
-  it('reports an impact for bombs and weights instead of landing', () => {
-    const g = new Grid();
-    g.set(4, 5, TileId.Crony);
-    expect(fly(g, 'bottom', 4, TileId.Bomb).result).toEqual({
-      type: 'impact',
-      at: { col: 4, row: 6 },
-      target: { col: 4, row: 5 },
-    });
-    expect(fly(g, 'bottom', 4, TileId.Weight2).result.type).toBe('impact');
+  it('treats flat sides as walls and stops before a ramp whose exit is blocked', () => {
+    // 16 is open at the top and left: approaching from below hits a flat side.
+    const flat = board([[4, 5, TileId.RampTopLeft]]);
+    expect(nextCell(flat, 4, 6, 'up', true, true)).toEqual({ col: 4, row: 6, dir: 'up' });
+    // 18 would send an upward shot left, but the exit is blocked.
+    const blocked = board([
+      [4, 5, TileId.RampBottomLeft],
+      [3, 5, TileId.GreyBlock],
+    ]);
+    expect(nextCell(blocked, 4, 6, 'up', true, true)).toEqual({ col: 4, row: 6, dir: 'up' });
+    // Without blocking (blast targets) the shot goes through anyway.
+    expect(nextCell(blocked, 4, 6, 'up', false, true)).toEqual({ col: 3, row: 5, dir: 'left' });
   });
 
-  describe('ramps (level 1-16 geometry)', () => {
-    it('ramp 19 (open bottom+right) turns an upward shot right', () => {
-      const g = new Grid();
-      g.set(0, 6, TileId.RampBottomRight);
-      g.set(6, 6, TileId.Crony);
-      const { result, p } = fly(g, 'bottom', 0, TileId.Thingie1);
-      expect(result).toEqual({ type: 'land', at: { col: 5, row: 6 } });
-      expect(p.dir).toBe('right');
+  it('chains ramps across consecutive steps', () => {
+    const v = board([
+      [4, 5, TileId.RampBottomLeft],
+      [2, 5, TileId.RampBottomRight],
+    ]);
+    // Up into 18 -> left, one cell past the ramp; then left into 19 -> down.
+    const first = nextCell(v, 4, 6, 'up', true, true);
+    expect(first).toEqual({ col: 3, row: 5, dir: 'left' });
+    expect(nextCell(v, first.col, first.row, first.dir, true, true)).toEqual({
+      col: 2,
+      row: 6,
+      dir: 'down',
     });
+    // A ramp directly beside another is crossed in the same step.
+    const adjacent = board([
+      [4, 5, TileId.RampBottomLeft],
+      [3, 5, TileId.RampBottomRight],
+    ]);
+    expect(nextCell(adjacent, 4, 6, 'up', true, true)).toEqual({ col: 3, row: 6, dir: 'down' });
+  });
+});
 
-    it('ramp 19 turns a leftward shot down', () => {
-      const g = new Grid();
-      g.set(6, 0, TileId.RampBottomRight);
-      g.set(6, 6, TileId.Crony);
-      expect(fly(g, 'right', 0, TileId.Thingie1).result).toEqual({
-        type: 'land',
-        at: { col: 6, row: 5 },
-      });
-    });
+describe('walkWeightPath', () => {
+  it('collects the run ahead and the free cell that ends it', () => {
+    const v = board([
+      [4, 5, TileId.GreyBlock],
+      [4, 4, TileId.Crony],
+    ]);
+    const { path, run } = walkWeightPath(v, { col: 4, row: 6 }, 'up');
+    expect(run).toBe(2);
+    expect(path).toEqual([
+      { col: 4, row: 6 },
+      { col: 4, row: 5 },
+      { col: 4, row: 4 },
+      { col: 4, row: 3 },
+    ]);
+  });
 
-    it('ramp 17 (open top+right) turns a downward shot right (level 1-18)', () => {
-      const g = new Grid();
-      g.set(5, 0, TileId.RampBottomRight); // player-placed ramp: left -> down
-      g.set(5, 5, TileId.RampTopRight); // level ramp: down -> right
-      g.set(7, 5, TileId.Crony);
-      expect(fly(g, 'right', 0, TileId.Thingie3).result).toEqual({
-        type: 'land',
-        at: { col: 6, row: 5 },
-      });
-    });
+  it('reports an immovable run at the board edge or an enemy block', () => {
+    expect(walkWeightPath(board([[4, 0, TileId.GreyBlock]]), { col: 4, row: 1 }, 'up').run).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+    const v = board([
+      [4, 5, TileId.GreyBlock],
+      [4, 4, TileId.CronyBlock],
+    ]);
+    expect(walkWeightPath(v, { col: 4, row: 6 }, 'up').run).toBe(Number.POSITIVE_INFINITY);
+  });
 
-    it('flat sides block like any obstacle', () => {
-      const g = new Grid();
-      g.set(4, 5, TileId.RampTopLeft); // open top+left: an upward shot hits its flat bottom
-      expect(fly(g, 'bottom', 4, TileId.Thingie1).result).toEqual({
-        type: 'land',
-        at: { col: 4, row: 6 },
-      });
-      g.set(4, 5, TileId.RampBottomRight); // open bottom+right: a leftward shot enters via right
-      const { p } = fly(g, 'right', 5, TileId.Thingie1);
-      expect(p.dir).toBe('down');
-    });
-
-    it('a shot deflected off the board stops in the ramp cell only if empty, else is lost', () => {
-      const g = new Grid();
-      g.set(0, 5, TileId.RampBottomLeft); // upward shot exits left, straight off the board
-      expect(fly(g, 'bottom', 0, TileId.Thingie1).result).toEqual({ type: 'lost' });
-    });
-
-    it('covers all four orientations', () => {
-      const cases: [number, 'bottom' | 'right', string | null][] = [
-        [TileId.RampTopLeft, 'bottom', null],
-        [TileId.RampTopLeft, 'right', null],
-        [TileId.RampTopRight, 'bottom', null],
-        [TileId.RampTopRight, 'right', 'up'],
-        [TileId.RampBottomLeft, 'bottom', 'left'],
-        [TileId.RampBottomLeft, 'right', null],
-        [TileId.RampBottomRight, 'bottom', 'right'],
-        [TileId.RampBottomRight, 'right', 'down'],
-      ];
-      for (const [ramp, shooter, dir] of cases) {
-        const g = new Grid();
-        g.set(6, 6, ramp);
-        const { p } = fly(g, shooter, 6, TileId.Thingie1);
-        const original = shooter === 'bottom' ? 'up' : 'left';
-        expect(p.dir, `ramp ${ramp} from ${shooter}`).toBe(dir ?? original);
-      }
-    });
+  it('stops at a land mine as if it were free', () => {
+    const v = board([
+      [4, 5, TileId.Skully],
+      [4, 4, TileId.Mine],
+    ]);
+    const { path, run } = walkWeightPath(v, { col: 4, row: 6 }, 'up');
+    expect(run).toBe(1);
+    expect(path.at(-1)).toEqual({ col: 4, row: 4 });
   });
 });

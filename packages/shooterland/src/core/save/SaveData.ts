@@ -75,9 +75,10 @@ export function worldExists(levels: readonly LevelData[], world: number): boolea
 }
 
 /**
- * World gating (tutorials 1-25 and 2-25): the previous world's last level
- * must be cleared and the player needs `starThresholds[world]` stars.
- * Thresholds beyond world 2 are unverified (docs/GAPS.md G9).
+ * World gating (`FUN_0040609e`): the previous world's last level must be
+ * cleared and the player needs `starThresholds[world]` stars (10, 30, 50, 75,
+ * 100, 150 for worlds 2 to 7). The exe only checks this when a level is won;
+ * here it is evaluated live, which opens a world as soon as both hold.
  */
 export function isWorldUnlocked(
   save: SaveData,
@@ -121,33 +122,53 @@ export function starsForNextWorld(
 }
 
 export interface SaveStats {
+  /** Whole percent, as the exe truncates it. */
   winPercent: number | null;
   averageComboSize: number | null;
   shotsPerCombo: number | null;
-  /** GAP:G13 - the original's "SL Rating" formula is unknown; this is a placeholder blend. */
   slRating: number | null;
   completePercent: number;
   stars: number;
 }
 
+/** Levels the file has reached: 25 per completed world plus the current level (`(world-1)*25 + level`). */
+export function levelsReached(save: SaveData): number {
+  return (save.world - 1) * LEVELS_PER_WORLD + save.level;
+}
+
+const clamp = (v: number): number => Math.max(0, Math.min(2.375, v));
+
+/**
+ * The stats screen's numbers, with the exe's formulas (`FUN_0040ad69`,
+ * `FUN_0040521c`; docs/RULES.md "Winning, stars, worlds").
+ */
 export function computeStats(save: SaveData, levels: readonly LevelData[]): SaveStats {
   const games = save.wins + save.losses;
-  const winPercent = games > 0 ? (100 * save.wins) / games : null;
+  const winPercent = games > 0 ? Math.floor((100 * save.wins) / games) : null;
   const averageComboSize = save.combos > 0 ? save.comboPieces / save.combos : null;
   const shotsPerCombo = save.combos > 0 ? save.shots / save.combos : null;
-  const playable = playableLevels(levels);
-  const cleared = playable.filter((l) => isCleared(save, l.world, l.level)).length;
-  const slRating =
-    winPercent !== null && averageComboSize !== null && shotsPerCombo !== null
-      ? (winPercent / 10) * (averageComboSize / shotsPerCombo)
-      : null;
+  const stars = countStars(save, levels);
+  const reached = levelsReached(save);
+  let slRating: number | null = null;
+  if (
+    winPercent !== null &&
+    averageComboSize !== null &&
+    shotsPerCombo !== null &&
+    save.shots > 0
+  ) {
+    const a = clamp((winPercent - 30) * 0.04);
+    const b = clamp((save.combos / save.shots - 0.3) * 5.9375);
+    const c = clamp((averageComboSize - 3) * 11.875);
+    const d = clamp((stars / Math.min(150, reached)) * 2.375);
+    slRating = ((a + b + c + d) / 6) * 100;
+  }
   return {
     winPercent,
     averageComboSize,
     shotsPerCombo,
     slRating,
-    completePercent: playable.length > 0 ? Math.floor((100 * cleared) / playable.length) : 0,
-    stars: countStars(save, levels),
+    completePercent: Math.floor(((stars + 2 * (reached - 1)) * 100 + 6) / 456),
+    stars,
   };
 }
 
@@ -165,6 +186,7 @@ export function recordResult(
   if (outcome === 'won') {
     save.wins++;
     const i = levelIndex(level.world, level.level);
+    // The exe stores whole seconds and treats 0 as "never cleared", so a sub-second win counts as 1.
     const secs = Math.max(1, Math.floor(stats.seconds));
     const prev = save.bestTimes[i] ?? 0;
     if (prev === 0 || secs < prev) save.bestTimes[i] = secs;

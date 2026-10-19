@@ -13,11 +13,13 @@ export function isEnemy(id: number): boolean {
 }
 
 export function isWeight(id: number): boolean {
-  return id >= TileId.Weight1 && id <= TileId.Weight3;
+  return id >= TileId.Weight1 && id <= TileId.HeavyWeight;
 }
 
-export function weightSize(id: number): number {
-  return id - TileId.Weight1 + 1;
+/** Objects a weight can push / enemies it can crush (`FUN_0040b6d7`: item - 11, 4 becomes 998). */
+export function weightStrength(id: number): number {
+  const n = id - TileId.Weight1 + 1;
+  return n === 4 ? 998 : n;
 }
 
 export function isRamp(id: number): boolean {
@@ -33,8 +35,8 @@ export function isObstacle(id: number): boolean {
   return (
     id === TileId.GreyBlock ||
     id === TileId.BrownBlock ||
-    id === TileId.SpentWeight ||
     id === TileId.Mine ||
+    isWeight(id) ||
     isRamp(id) ||
     isEnemyBlock(id)
   );
@@ -54,6 +56,13 @@ const ENEMY_BLOCK_BY_ID: Record<number, EnemyKind> = {
   [TileId.FangieBlock]: 'fangie',
   [TileId.SkullyBlock]: 'skully',
 };
+const ENEMY_ID: Record<EnemyKind, number> = {
+  crony: TileId.Crony,
+  crazy: TileId.Crazy,
+  fatty: TileId.Fatty,
+  fangie: TileId.Fangie,
+  skully: TileId.Skully,
+};
 
 export function enemyKind(id: number): EnemyKind | undefined {
   return ENEMY_BY_ID[id];
@@ -61,6 +70,10 @@ export function enemyKind(id: number): EnemyKind | undefined {
 
 export function enemyBlockKind(id: number): EnemyKind | undefined {
   return ENEMY_BLOCK_BY_ID[id];
+}
+
+export function enemyId(kind: EnemyKind): number {
+  return ENEMY_ID[kind];
 }
 
 export type VEdge = 'top' | 'bottom';
@@ -72,9 +85,9 @@ export interface RampShape {
 }
 
 /**
- * The two open (curved-face) edges of each ramp, read off the sprites and
- * confirmed by the geometry of levels 1-16 and 1-18. A shot entering through
- * an open edge leaves through the other; the two flat edges block.
+ * The two open (curved-face) edges of each ramp. Verified against the exe's
+ * deflection switch (`FUN_0040a38b`, docs/GAPS.md G8): a shot entering
+ * through an open edge leaves through the other; the two flat edges block.
  */
 export const RAMP_SHAPES: Readonly<Record<number, RampShape>> = {
   [TileId.RampTopLeft]: { v: 'top', h: 'left' },
