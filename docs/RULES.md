@@ -1,27 +1,116 @@
-# Shooterland: reconstructed rules
+# Shooterland: rules
 
-Sources: the tutorial messages embedded in the 151 legacy level files (quoted by level id, e.g. 1-12), strings in the legacy exe, and the partial Android port. See [FORMATS.md](FORMATS.md) for file layouts and [GAPS.md](GAPS.md) for what is still unverified.
+Every rule below was read from the disassembly of the shipped exe (see
+[DISASSEMBLY.md](DISASSEMBLY.md) for the function map) unless it is marked otherwise.
+[FORMATS.md](FORMATS.md) has the file layouts, [GAPS.md](GAPS.md) the audit trail per gap.
+Tutorial level ids (e.g. 1-12) point at the message that first teaches a rule.
 
-## Screens (from exe strings + graphics)
+## Screens
 
-1. Studio logo (`logo.png`) -> 2. Title (`shooterland.png`: Start Game / Quit) -> 3. Save-file menu (`menusupplement.png`: File 1/2/3 "File %d: New Game" / "File %d: Level %d-%d", Back/Load/Delete, "Are you sure you want to delete File %d?") -> 4. World map (`worldN/map.png`: 25 gem nodes from `map.dat`, world tabs 1..7, Menu / Stats / Preview / Play Level; strings "Stars: %d", "Next: %d stars", "Record: %d-%d") -> 5. Level intro/preview (mini.png 20px tiles + tutorial message, "Level %d-%d", "Best time: %d", "Time to beat: %d", "You have this level's star!", "Beat %d seconds to acquire this level's star.") -> 6. Gameplay (HUD strings "Time: %ds", "TTB: %ds", "Cronies: Crazies: Fatties: Fangies: Skullies:", "$") -> 7. Pause overlay (`Pause.png` letters + kill-method chart: rows = enemy, cols = bomb / combo / weight / land mine) -> 8. Level complete (`complete.png` bobbing letters, `checkandstar.png` animation, "Time: %d s (Best Time: %d s)", "Number of shots/combos", "Average combo size") or Defeat (`defeat.png`, "Do you wish to retry the level?") -> 9. Stats screen ("Stats: File %d", Win Percentage, Average Combo Size, Shots per Combo, Number of Shots, SL Rating, Time Played, "Complete: %d%%", "Record: I HATE CHICKEN" easter egg).
-- Final level: "Congratulations! You've won the game!", "Live at least %d seconds to beat this final challenge of the game!" (survival level).
-- `beta.png` overlay drawn somewhere (title?). Custom cursor `mouse.png`. Sound/music toggle buttons `buttonz.png`. `wood.png` panel + `plusminus.png` likely the pause/menu panel.
+Logo (fade in 3.3 s, hold until 6 s, fade out; a click skips) -> Title (Start, Quit) ->
+File select (three files; Load, Back, Delete with a Yes/No prompt) -> World map (25 nodes,
+world tabs, Menu / Stats / Preview / Play) -> Level intro (board, tutorial text in the side
+panel, Play) -> Gameplay -> Result (OK / Retry) -> World map. Escape leaves any screen for
+the previous one; from gameplay it goes to the map and counts a loss when more than 5 s
+were played. Pause is the second of the three HUD buttons (Retry, Pause, Quit); the pause
+screen shows the enemy/kill-method chart. Hovering Preview on the map shows the level's
+mini-tile layout on a wood panel.
 
-## Core rules (authoritative: legacy tutorial messages; fallback: Java port)
+## Board and shooters
 
-- Board: 13x13 cells of 40px (520x520). HUD panel 200px on the right (x 600..800), baked into `worldN/background.png`; `supplement.gif` overlays "$" box + Store button. `backgrounddark.png` = same scene darkened (pause/store/intro overlay).
-- Shooters: Mary (bottom edge, red bar, shoots up a column) and Poindexter (right edge, blue bar, shoots left along a row). They **always fire together on one click**; if either is blocked neither fires (1-10, 1-17). Shooter *size* 1..3 (level header lines 1-2; `shooters.png` has 1/2/3-tile bars). A size-N shooter fires N thingies at once in adjacent columns/rows; can fire as long as **at least one** of its N lanes is open (1-24). Size changes randomly during play ("randomly change size", 1-24) - rule unknown, see G7.
-- Ammo: each shooter holds one loaded item; next item previewed in HUD (Java). Loaded items are random thingies 1..6 with random bowling bombs mixed in (1-4). Six thingies per world (`image.gif` rows 1-6); Java only used 5.
-- Projectile: travels in a straight line until the cell before the first obstacle, then lands (Java `getFirstOpenRow/Column`). No gravity. Ramps deflect it 90 degrees (1-16); ramps can chain (2-5, 2-16), and a shot *ramp* can itself be deflected by a ramp. A bomb destroys what it hits immediately so the other simultaneous shot can pass through that cell if the bomb gets there first (2-8).
-- Combos: 3+ orthogonally connected identical thingies clear. $1 for 3, +$1 per extra thingy (1-2). Enemies adjacent to a combo die if combo-killable; no extra money for multiple enemies (1-9). Java adjacency = 8-neighbourhood of each cleared cell; 4- vs 8-neighbourhood unverified (G3).
-- Enemies (ids 7..11; `image.gif` rows 7-11; HUD counters): Crony (combo, bomb, weight), Crazy (bomb, weight only; NOT combos, 2-1), Fatty (weight, or combo of **4+**; 2-18), Fangie (from W3; kill rule unknown G4), Skully (from W4; kill rule unknown G4). Pause chart columns: bomb / combo / weight / land mine. Enemies have a glowing red aura outline (1-6).
-- Blocks: 20 grey Vilithizium: indestructible, pushable by weights (1-8). 21 brown Frunhorpus: bombable and pushable (2-11). 23..27 enemy blocks (Crony..Skully): indestructible/immovable until all enemies of that type are dead, then they vanish (2-6, 2-9).
-- Bowling bomb: destroys whatever it hits (any thingy, enemy, brown block, ramp if hit on a flat side; not grey blocks). Explosion anim `explosion.png` row 0 (11 frames) / `image.gif` row 0.
-- Store (button under money total): Weight 1/2/3 and 4 ramps; drag onto either shooter to replace its loaded item (1-11, 1-16). Prices unknown (G5; Java placeholders: W1 $2, W2 $3, W3 $4, bomb $3, ramps $2; "ramps are expensive" 2-4). Bombs are NOT bought; they are random ammo.
-- Weight N: travels like a shot; on impact pushes up to N objects (thingies, blocks) along its direction until something cannot move, then crushes up to N enemies starting with the nearest (1-11, 1-12). Only enemies are crushed. Exact push/crush algorithm unverified (G6).
-- Ramps: 4 orientations (ids 16..19; `items.PNG` quarter-curves). Deflect shots arriving on the curved side; flat sides block (and a bomb on a flat side destroys the ramp, 2-13). Derived from level 1-16/1-18 layouts: id 19 = "/" (north->east, west->south), id 17 = "\" (south->east, west->north). ids 16 and 18 = the other two; derive from level geometry or exe (G8).
-- Rosco (raccoon): emerges from his stump after the lair delay (header line 3, ms), walks to the piggy bank, steals $1, walks back, repeats; a visible countdown next to his lair (header line 4, ms) speeds him up when it hits 0 (1-7). If he arrives and the bank is empty: defeat (1-1, Java TODO). Sprites `raccoon.png` 8 frames; `StumpAndMoney.png`.
-- Win: all enemies dead. Level timer runs; beat `times.dat` TTB (seconds) to earn the level's star (1-5). Stars gate worlds: >=10 after W1, >=25 after W2 (1-25, 2-25); W3+ thresholds unknown (G9). "Next: %d stars".
-- Land mines: "won't be seen until world four" (2-10); fourth kill method. Probably tile id 22 (appears W3-16 onward, 96 uses) but unverified (G10).
+- 13x13 cells of 40 px at (40,40). Mary's red bar sits under the board, Poindexter's blue
+  bar to its right. Both bars follow the pointer (centred on it) and both fire on one left
+  click (1-10, 1-17). Right click or the Store button opens the store.
+- Bar sizes are fixed per level (header lines 1-2). A size-N bar covers N adjacent lanes
+  and every lane has its own ammo queue: loaded item, next item, and so on. The HUD shows
+  each lane's next item. The "randomly change size" line in 1-24 was never implemented.
+- Ammo per lane is a bowling bomb with probability 1/20, otherwise one of the six thingies
+  with equal probability, from level 1-1 on.
+- A volley fires every lane that has an item. Nothing can be fired while any shot is in
+  flight. If every lane of either shooter is blocked (its first cell holds something a shot
+  cannot enter), the whole volley is cancelled and no shot counts (1-24: one open lane is
+  enough).
 
+## Shots
+
+- Shots advance one cell per frame (about 60 cells per second), all lanes together, Mary's
+  lanes first. A shot moves until the next cell is not free. Cells whose contents are being
+  destroyed count as free, so a bomb that lands first lets the other shot through (2-8).
+- Ramps (ids 16-19, open edges top+left, top+right, bottom+left, bottom+right): a shot
+  entering through an open edge leaves through the other in the same frame; flat edges
+  block. If the exit path is blocked the shot stops before the ramp. Ramps chain (2-5).
+- When a shot stops it lands in its current cell. If another shot filled that cell first,
+  it backs up along its path to the last free cell; with no free cell it returns to its
+  lane's queue.
+- A thingy lands as a tile. A bomb lands in the last free cell, then destroys the next
+  cell in its direction unless that cell holds a Fatty, Fangie, Skully, grey block or enemy
+  block; the bomb itself disappears after its blast animation. A bomb fired into a fully
+  blocked lane still blasts the lane's first cell.
+- Land mines (id 22) are entered like free cells: the shot and the mine are destroyed
+  together. Anything pushed into a mine is destroyed with the mine. Mines have no area
+  effect.
+
+## Combos and kills
+
+- Whenever no shot is in flight, every group of 3 or more orthogonally connected identical
+  thingies clears (4 or more in world 7). Money: group size minus 2 (1-2). Shots, combos and
+  pieces are tallied for the stats.
+- Each cleared cell flags its four orthogonal neighbours (1-9). A flagged Crony dies. A
+  flagged Fatty or Fangie dies if a thingy next to it belongs to a group of 4 or more (2-18),
+  in practice when the combo had 4+. Crazies and Skullies ignore combos (2-1).
+- Bombs kill Cronies and Crazies (and destroy thingies, brown blocks, ramps, mines and
+  weights). Weights crush Cronies, Crazies and Fatties. Mines kill anything pushed into
+  them, which is the only way to kill a Skully.
+- Destroyed tiles stay on the board for 11 animation frames (about 0.6 s): they are
+  passable but still count as present, so the win, enemy-block removal and HUD counters
+  follow about 0.6 s after the last kill.
+- Enemy blocks (23-27) vanish as soon as no enemy of their type remains (2-6, 2-9).
+
+## Weights (1-11, 1-12, 1-13)
+
+A weight of strength N (ids 12-14; id 15 is an unsold strength-998 weight) travels like a
+shot. When it cannot move it looks along its direction: the run of occupied cells ahead
+ends at the first free cell, a mine, the board edge or an enemy block.
+
+1. If the run holds at most N objects, the run has not reached the edge or an enemy block,
+   and the weight has not crushed anything yet, the whole run shifts one cell forward
+   (enemies included; an object entering a mine is destroyed with it) and the weight
+   follows next frame. This repeats until the run can no longer move.
+2. Otherwise, if a Crony, Crazy or Fatty is among the first N+1 cells ahead and the cell
+   beyond it is not empty, the objects before it shift forward and crush it. The weight
+   keeps going and may crush again, up to N enemies in total.
+3. Otherwise the weight lands and disappears with the "pop" animation. Nothing remains.
+
+## Store (1-11, 1-16, 2-4)
+
+Weights 1/2/3 cost $2/$3/$4, a bomb $3 (buy several with the +/- buttons), each ramp $2,
+and a copy of any thingy on the board $3 (click the thingy while the store is open).
+Opening the store parks the bars at the far end, shows a bubble per lane and inserts a
+blank slot in front of every lane. Dropping an item on a bubble loads it into that lane and
+closes the store; the other lanes keep their blank slot and fire nothing on the next volley
+(an original quirk, kept behind `storeBlanksOtherLanes`). Closing without buying removes the
+blanks. Money starts at $0 on every level and never carries over.
+
+## Rosco (1-3, 1-7)
+
+Rosco waits for the lair delay (header line 3), then repeats a trip whose period is header
+line 4: a quarter of it walking left along the top edge from his stump (top-right corner),
+a quarter down the left edge to the piggy bank (bottom-left corner), where he takes header
+line 5 dollars, then the same way back. Every line-176 ms (shown as a countdown at the top of
+the HUD) the period is multiplied by line 175 percent, never below 1 s, and the trip restarts
+from the stump. The level is lost the moment the bank goes below $0.
+
+## Winning, stars, worlds
+
+- The level is won as soon as no enemy tile remains. The time is whole seconds since Play
+  was pressed (pauses excluded); a time at or under `times.dat` earns the star (1-5). The
+  best time is stored on every win.
+- Clearing level 25 of your furthest world advances you to the next world when your stars
+  reach 10, 30, 50, 75, 100 or 150 for worlds 1 to 6 (1-25 says 10; 2-25 says 25 but the
+  code says 30). The code never advances past world 6, so world 7 was unreachable in the
+  beta. "Next: %d stars" shows the threshold of your furthest world.
+- Stats: win % = wins / (wins + losses); average combo = pieces / combos; shots per combo;
+  SL Rating = 100/6 * (a + b + c + d) with each term clamped to 0..2.375:
+  a = (win% - 30) * 0.04, b = (combos/shots - 0.3) * 5.9375, c = (average combo - 3) * 11.875,
+  d = stars / min(150, levels reached) * 2.375. Complete % on the file screen =
+  ((stars + 2 * (levels reached - 1)) * 100 + 6) / 456.
