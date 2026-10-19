@@ -33,7 +33,11 @@ export interface ShooterlandProps {
   /** Seed for the deterministic simulation RNG. */
   seed?: number | undefined;
   className?: string | undefined;
-  /** Applied to the wrapper. Defaults to a full-width 4:3 box. */
+  /**
+   * Applied to the wrapper. By default the wrapper fills its container and the
+   * game is the largest 4:3 box that fits inside it; a container with no height
+   * of its own gets a 4:3 box from its width.
+   */
   style?: CSSProperties | undefined;
   onEvent?: ((event: GameEvent) => void) | undefined;
   onReady?: (() => void) | undefined;
@@ -42,18 +46,27 @@ export interface ShooterlandProps {
   fallback?: ReactNode | undefined;
 }
 
+// Fills the parent in both axes when the parent has a size, and falls back to a
+// 4:3 box from the width when it does not (aspect-ratio only applies when the
+// height is auto). It is a size container so the canvas can be sized against it.
 const wrapperStyle: CSSProperties = {
   position: 'relative',
   width: '100%',
+  height: '100%',
   aspectRatio: '4 / 3',
+  containerType: 'size',
+  display: 'grid',
+  placeItems: 'center',
   overflow: 'hidden',
   background: '#000',
 };
 
+// The largest 4:3 rectangle that fits the wrapper, centred; the wrapper's black
+// background shows as bars on the long axis.
 const canvasStyle: CSSProperties = {
   display: 'block',
-  width: '100%',
-  height: '100%',
+  width: 'min(100cqw, calc(100cqh * 4 / 3))',
+  aspectRatio: '4 / 3',
   touchAction: 'none',
   userSelect: 'none',
 };

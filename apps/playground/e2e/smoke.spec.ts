@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { PNG } from 'pngjs';
+import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH, virtualMapper } from './virtual';
 
 interface Rgb {
   r: number;
@@ -21,7 +22,27 @@ async function canvasPixels(
   };
 }
 
-test('boots, draws the virtual area and letterboxes wider canvases', async ({ page }) => {
+/** The canvas is the largest 4:3 box that fits the page: 4:3 itself, with the whole of it game. */
+async function expectFittedCanvas(page: Page): Promise<void> {
+  const box = await page.locator('canvas').boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  expect(Math.abs(box.width / box.height - VIRTUAL_WIDTH / VIRTUAL_HEIGHT)).toBeLessThan(0.01);
+  const px = await canvasPixels(page);
+  // Blue boot colour in the middle and in every corner: no letterbox bars inside the canvas.
+  expect(px.at(Math.floor(px.w / 2), Math.floor(px.h / 2)).b).toBeGreaterThan(100);
+  for (const [x, y] of [
+    [2, 2],
+    [px.w - 3, 2],
+    [2, px.h - 3],
+    [px.w - 3, px.h - 3],
+  ] as const) {
+    expect(px.at(x, y).b).toBeGreaterThan(100);
+  }
+}
+
+test('boots, fits the largest 4:3 box into the page and follows viewport resizes', async ({
+  page,
+}) => {
   const errors: string[] = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
@@ -29,39 +50,46 @@ test('boots, draws the virtual area and letterboxes wider canvases', async ({ pa
   page.on('pageerror', (e) => errors.push(e.message));
 
   await page.goto('/?audio=none&scene=boot');
-  await expect(page.locator('canvas')).toBeVisible();
+  const canvas = page.locator('canvas');
+  await expect(canvas).toBeVisible();
   await expect(page.getByText('ready')).toBeVisible();
+  // The event log floats over the canvas corner; hide it so the pixel checks see only the game.
+  await page.getByTestId('event-log').evaluate((el) => {
+    el.style.visibility = 'hidden';
+  });
+  await expectFittedCanvas(page);
+  const initial = await canvas.boundingBox();
+  if (!initial) throw new Error('canvas has no bounding box');
 
-  // Native size: the whole canvas is the virtual area (blue boot colour).
-  let px = await canvasPixels(page);
-  expect(px.w).toBe(800);
-  expect(px.h).toBe(600);
-  expect(px.at(400, 300).b).toBeGreaterThan(100);
-  expect(px.at(2, 2).b).toBeGreaterThan(100);
-
-  // Wider than 4:3: letterbox bars appear left and right, virtual area stays centred.
-  await page.getByRole('button', { name: 'Large (1200px)' }).click();
+  // Wide and short: height is the limit, so the canvas is narrower than the page.
+  await page.setViewportSize({ width: 1400, height: 500 });
   await page.waitForTimeout(300);
-  if (process.env.SMOKE_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOT });
-  px = await canvasPixels(page);
-  expect(px.w).toBe(1200);
-  expect(px.h).toBe(900);
-  const corner = px.at(2, 2);
-  expect(corner.r + corner.g + corner.b).toBeLessThan(30);
-  expect(px.at(600, 450).b).toBeGreaterThan(100);
+  await expectFittedCanvas(page);
+  const wide = await canvas.boundingBox();
+  if (!wide) throw new Error('canvas has no bounding box');
+  expect(wide.width).toBeLessThan(1400);
+  expect(wide.height).toBeLessThan(initial.height);
 
-  // Pointer input reaches the scene: holding the pointer turns the area orange.
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  await page.mouse.move(600, 450 + box.y);
+  // Narrow and tall: width is the limit, so the canvas spans the page.
+  await page.setViewportSize({ width: 600, height: 1000 });
+  await page.waitForTimeout(300);
+  await expectFittedCanvas(page);
+  const tall = await canvas.boundingBox();
+  if (!tall) throw new Error('canvas has no bounding box');
+  expect(tall.width).toBeCloseTo(600, 0);
+  if (process.env.SMOKE_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOT });
+
+  // Pointer input reaches the scene at the scaled size: holding the pointer turns the area orange.
+  const v = await virtualMapper(canvas);
+  await page.mouse.move(v.x(400), v.y(300));
   await page.mouse.down();
   await page.waitForTimeout(200);
-  px = await canvasPixels(page);
-  expect(px.at(600, 450).r).toBeGreaterThan(150);
+  const px = await canvasPixels(page);
+  expect(px.at(Math.floor(px.w / 2), Math.floor(px.h / 2)).r).toBeGreaterThan(150);
   await page.mouse.up();
 
   // Unmounting tears the game down without errors.
   await page.getByRole('button', { name: 'Unmount' }).click();
-  await expect(page.locator('canvas')).toHaveCount(0);
+  await expect(canvas).toHaveCount(0);
   expect(errors).toEqual([]);
 });

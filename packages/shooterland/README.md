@@ -16,11 +16,11 @@ React 18 or 19 is an optional peer dependency: the `shooterland/engine` and `sho
 import { Shooterland } from 'shooterland';
 
 export function Page() {
-  return <Shooterland style={{ maxWidth: 800 }} />;
+  return <Shooterland style={{ height: '100vh' }} />;
 }
 ```
 
-The component renders a 4:3 canvas that fills its container. By default the game's assets (sprites, fonts, levels, sounds, an 8 MB General MIDI sound bank) load from jsDelivr for the installed version. To self-host, copy `node_modules/shooterland/assets` somewhere static and point `assetBaseUrl` at it:
+The component fills its container and draws the game as the largest 4:3 box that fits, centred on black. Give the container (or the `style` prop) a height to let the game grow and shrink with the available space; with no height it becomes a 4:3 box as wide as its container. By default the game's assets (sprites, fonts, levels, sounds, an 8 MB General MIDI sound bank) load from jsDelivr for the installed version. To self-host, copy `node_modules/shooterland/assets` somewhere static and point `assetBaseUrl` at it:
 
 ```tsx
 <Shooterland assetBaseUrl="/shooterland-assets/" />

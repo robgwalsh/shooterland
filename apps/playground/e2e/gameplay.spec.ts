@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { virtualMapper } from './virtual';
 
 test('plays level 1-1: aiming and clicking fires both shooters', async ({ page }) => {
   const errors: string[] = [];
@@ -15,11 +16,9 @@ test('plays level 1-1: aiming and clicking fires both shooters', async ({ page }
   const shots = () => page.evaluate(() => window.__shooterland?.debug.session()?.stats.shots ?? -1);
   expect(await shots()).toBe(0);
 
-  // The canvas is 800x600 CSS pixels here, so virtual coordinates map 1:1.
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
+  const v = await virtualMapper(canvas);
   // Column 6, row 6 of the board (board origin 40,40; 40px cells).
-  await page.mouse.click(box.x + 40 + 6 * 40 + 20, box.y + 40 + 6 * 40 + 20);
+  await page.mouse.click(v.x(40 + 6 * 40 + 20), v.y(40 + 6 * 40 + 20));
   await expect.poll(shots, { timeout: 5_000 }).toBe(1);
 
   // Shots land and nothing is left in flight.

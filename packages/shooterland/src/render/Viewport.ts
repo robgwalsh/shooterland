@@ -10,9 +10,8 @@ export interface DeviceRect {
 
 /**
  * Maps the fixed 800x600 virtual space onto a canvas of any size: the largest
- * 4:3 rectangle that fits, centred (letterboxed). Scale is a whole number of
- * device pixels per virtual pixel whenever the canvas is large enough, so
- * sprites stay crisp; below 1x it falls back to fractional downscaling.
+ * 4:3 rectangle that fits, centred (letterboxed). The scale is fractional in
+ * both directions so the game always fills the canvas it is given.
  */
 export class Viewport {
   canvasWidth = VIRTUAL_WIDTH;
@@ -23,8 +22,7 @@ export class Viewport {
   resize(canvasWidth: number, canvasHeight: number): void {
     this.canvasWidth = Math.max(1, Math.floor(canvasWidth));
     this.canvasHeight = Math.max(1, Math.floor(canvasHeight));
-    const raw = Math.min(this.canvasWidth / VIRTUAL_WIDTH, this.canvasHeight / VIRTUAL_HEIGHT);
-    this.scale = raw >= 1 ? Math.floor(raw) : raw;
+    this.scale = Math.min(this.canvasWidth / VIRTUAL_WIDTH, this.canvasHeight / VIRTUAL_HEIGHT);
     const w = Math.round(VIRTUAL_WIDTH * this.scale);
     const h = Math.round(VIRTUAL_HEIGHT * this.scale);
     this.rect.x = Math.floor((this.canvasWidth - w) / 2);

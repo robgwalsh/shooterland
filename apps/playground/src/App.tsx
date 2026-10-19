@@ -2,13 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { type GameHandle, Shooterland, type StartScene } from 'shooterland';
 import { SheetGallery } from './SheetGallery';
 
-const SIZES = [
-  { label: 'Small (400px)', width: 400 },
-  { label: 'Native (800px)', width: 800 },
-  { label: 'Large (1200px)', width: 1200 },
-  { label: 'Fluid (100%)', width: undefined },
-] as const;
-
 type SceneName = 'gameplay' | 'logo' | 'title' | 'worldMap' | 'assetViewer' | 'boot';
 const SCENES: SceneName[] = ['gameplay', 'logo', 'title', 'worldMap', 'assetViewer', 'boot'];
 
@@ -47,7 +40,6 @@ declare global {
 export function App() {
   const handle = useRef<GameHandle | null>(null);
   const [query, setQuery] = useState(readQuery);
-  const [size, setSize] = useState<number | undefined>(800);
   const [mounted, setMounted] = useState(true);
   const [log, setLog] = useState<string[]>([]);
   const [muted, setMuted] = useState(false);
@@ -69,8 +61,18 @@ export function App() {
   const sceneKey = JSON.stringify(startScene);
 
   return (
-    <div style={{ padding: 16, display: 'grid', gap: 12 }}>
-      <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div
+      style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}
+    >
+      <header
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          padding: '4px 8px',
+        }}
+      >
         <strong>Shooterland playground</strong>
         <button type="button" onClick={() => setQuery((s) => ({ ...s, view: 'game' }))}>
           Game
@@ -112,11 +114,6 @@ export function App() {
             onChange={(e) => setQuery((s) => ({ ...s, seed: Number(e.target.value) || 1 }))}
           />
         </label>
-        {SIZES.map((s) => (
-          <button key={s.label} type="button" onClick={() => setSize(s.width)}>
-            {s.label}
-          </button>
-        ))}
         <button type="button" onClick={() => setMounted((m) => !m)}>
           {mounted ? 'Unmount' : 'Mount'}
         </button>
@@ -132,7 +129,9 @@ export function App() {
         </button>
       </header>
       {query.view === 'sheets' ? (
-        <SheetGallery assetBaseUrl="/assets/" />
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 8 }}>
+          <SheetGallery assetBaseUrl="/assets/" />
+        </div>
       ) : mounted ? (
         <Shooterland
           key={sceneKey}
@@ -144,7 +143,8 @@ export function App() {
           startScene={startScene}
           audio={query.audio}
           muted={muted}
-          style={size ? { width: size } : undefined}
+          // The game takes everything below the header; the page colour fills the bars.
+          style={{ flex: 1, minHeight: 0, background: '#1b1b1f' }}
           onEvent={(e) => {
             if (e.type === 'session') return;
             const detail =
@@ -162,7 +162,23 @@ export function App() {
           }}
         />
       ) : null}
-      <pre style={{ margin: 0, opacity: 0.7 }}>{log.join('\n')}</pre>
+      {/* Recent events float over the bottom-left corner so they cost the game no space. */}
+      <pre
+        data-testid="event-log"
+        style={{
+          position: 'absolute',
+          left: 8,
+          bottom: 4,
+          margin: 0,
+          font: '11px/1.3 ui-monospace, monospace',
+          color: '#eee',
+          opacity: 0.6,
+          pointerEvents: 'none',
+          whiteSpace: 'pre',
+        }}
+      >
+        {log.slice(-6).join('\n')}
+      </pre>
     </div>
   );
 }

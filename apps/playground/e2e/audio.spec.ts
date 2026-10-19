@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { virtualMapper } from './virtual';
 
 test('audio boots on the first click without errors (worker synth + soundfont)', async ({
   page,
@@ -14,10 +15,9 @@ test('audio boots on the first click without errors (worker synth + soundfont)',
   await page.goto('/?scene=title');
   const canvas = page.locator('canvas');
   await expect(page.getByText('ready')).toBeVisible({ timeout: 20_000 });
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
+  const v = await virtualMapper(canvas);
   // Any click unlocks audio; this one also starts the game.
-  await page.mouse.click(box.x + 93, box.y + 515);
+  await page.mouse.click(v.x(93), v.y(515));
   // Give the worker, worklet and 8 MB sound bank time to load and start the title track.
   await page.waitForTimeout(6000);
   const state = await page.evaluate(

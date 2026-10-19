@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { virtualMapper } from './virtual';
 
 const scene = (page: Page) => page.evaluate(() => window.__shooterland?.debug.scene() ?? 'none');
 
@@ -15,9 +16,8 @@ test('intro, pause chart and result screens render without errors', async ({ pag
   const canvas = page.locator('canvas');
   await expect(page.getByText('ready')).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => scene(page)).toBe('WorldMapScene');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const click = (x: number, y: number) => page.mouse.click(box.x + x, box.y + y);
+  const v = await virtualMapper(canvas);
+  const click = (x: number, y: number) => page.mouse.click(v.x(x), v.y(y));
   const shot = async (name: string) => {
     if (process.env.SMOKE_SHOT_SCREENS) {
       await canvas.screenshot({ path: `${process.env.SMOKE_SHOT_SCREENS}-${name}.png` });
@@ -31,7 +31,7 @@ test('intro, pause chart and result screens render without errors', async ({ pag
 
   await click(701, 549); // Play
   await expect.poll(() => scene(page)).toBe('GameplayScene');
-  await page.mouse.move(box.x + 300, box.y + 300);
+  await page.mouse.move(v.x(300), v.y(300));
   await click(701, 280); // Pause
   await page.waitForTimeout(300);
   await shot('pause');

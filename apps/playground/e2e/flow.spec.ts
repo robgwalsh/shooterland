@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { virtualMapper } from './virtual';
 
 const scene = (page: Page) => page.evaluate(() => window.__shooterland?.debug.scene() ?? 'none');
 
@@ -14,9 +15,8 @@ test('title -> file select -> world map -> intro -> play -> pause -> quit back t
   const canvas = page.locator('canvas');
   await expect(page.getByText('ready')).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => scene(page)).toBe('TitleScene');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const click = (x: number, y: number) => page.mouse.click(box.x + x, box.y + y);
+  const v = await virtualMapper(canvas);
+  const click = (x: number, y: number) => page.mouse.click(v.x(x), v.y(y));
 
   // "Start Game" is painted at (43..140, 459..570).
   await click(91, 514);
