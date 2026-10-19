@@ -3,19 +3,22 @@ import { computeStats, isNewGame, type SlotNumber } from '../core/save/SaveData'
 import type { SaveService } from '../core/save/SaveService';
 import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
+import { drawSlot, drawSlotCentred, Slot } from './fonts';
 import type { Scene, SceneContext } from './Scene';
-import { contains, drawButton, drawDim, type Rect, rect } from './ui';
+import { contains, type Rect, rect } from './ui';
 
-/** menusupplement.png (340x165) is drawn at this offset; hot-spots are relative to it. */
-const PANEL_X = 230;
-const PANEL_Y = 300;
-const FILE_BUTTONS: Rect[] = [rect(25, 10, 50, 42), rect(25, 60, 50, 42), rect(25, 110, 50, 42)];
-const INFO = rect(85, 9, 240, 113);
-const BACK = rect(80, 127, 75, 30);
-const LOAD = rect(162, 127, 75, 30);
-const DELETE = rect(245, 127, 75, 30);
-
-const abs = (r: Rect): Rect => rect(r.x + PANEL_X, r.y + PANEL_Y, r.w, r.h);
+/** menusupplement.png sits over the title screen's buttons; hot-spots from `FUN_004025a3`. */
+const PANEL = { x: 0, y: 435 };
+const FILE_BUTTONS: Rect[] = [rect(25, 442, 47, 45), rect(25, 493, 47, 45), rect(25, 544, 47, 45)];
+const BACK = rect(79, 563, 77, 28);
+const LOAD = rect(161, 563, 77, 28);
+const DELETE = rect(244, 563, 77, 28);
+const HEADING = rect(85, 450, 228, 20);
+const LINE_X = 90;
+const LINE_YS = [477, 492, 507, 522];
+const CONFIRM_YES = rect(120, 520, 60, 35);
+const CONFIRM_NO = rect(220, 520, 60, 35);
+const BETA = { x: 450, y: 110 };
 
 /**
  * File 1/2/3 menu over the title screen: pick a slot, read its summary in
@@ -54,96 +57,89 @@ export class SaveSelectScene implements Scene {
         else this.actions.onBack();
         continue;
       }
-      if (e.type !== 'down' || this.loading) continue;
+      if (e.type !== 'down' || e.button !== 0 || this.loading) continue;
       if (this.confirmingDelete) {
-        const { yes, no } = this.confirmButtons();
-        if (contains(yes, e.x, e.y) && this.selected) {
+        if (contains(CONFIRM_YES, e.x, e.y) && this.selected) {
           const slot = this.selected;
           this.confirmingDelete = false;
           this.loading = true;
           void this.saves.remove(slot).then(() => {
             this.loading = false;
           });
-        } else if (contains(no, e.x, e.y)) {
+        } else if (contains(CONFIRM_NO, e.x, e.y)) {
           this.confirmingDelete = false;
         }
         continue;
       }
       FILE_BUTTONS.forEach((r, i) => {
-        if (contains(abs(r), e.x, e.y)) this.selected = (i + 1) as SlotNumber;
+        if (contains(r, e.x, e.y)) this.selected = (i + 1) as SlotNumber;
       });
-      if (contains(abs(BACK), e.x, e.y)) this.actions.onBack();
-      else if (contains(abs(LOAD), e.x, e.y) && this.selected) this.actions.onLoad(this.selected);
-      else if (contains(abs(DELETE), e.x, e.y) && this.selected && this.saves.peek(this.selected)) {
+      if (contains(BACK, e.x, e.y)) this.actions.onBack();
+      else if (contains(LOAD, e.x, e.y) && this.selected) this.actions.onLoad(this.selected);
+      else if (contains(DELETE, e.x, e.y) && this.selected && this.saves.peek(this.selected)) {
         this.confirmingDelete = true;
       }
     }
   }
 
-  private confirmButtons(): { yes: Rect; no: Rect } {
-    const info = abs(INFO);
-    return {
-      yes: rect(info.x + 30, info.y + 70, 80, 30),
-      no: rect(info.x + info.w - 110, info.y + 70, 80, 30),
-    };
-  }
-
   draw(renderer: Renderer): void {
     const { assets } = this;
-    const font1 = assets.font('font1');
-    const font2 = assets.font('font2');
     renderer.begin();
     renderer.drawImage(assets.image('shooterland'), 0, 0);
-    drawDim(renderer, 0.45);
-    renderer.drawImage(assets.image('menusupplement'), PANEL_X, PANEL_Y);
+    renderer.drawImage(assets.image('beta'), BETA.x, BETA.y);
+    renderer.drawImage(assets.image('menusupplement'), PANEL.x, PANEL.y);
 
-    // Highlight the selected file button.
     if (this.selected) {
-      const r = abs(FILE_BUTTONS[this.selected - 1] ?? rect(0, 0, 0, 0));
+      const r = FILE_BUTTONS[this.selected - 1] ?? rect(0, 0, 0, 0);
       renderer.drawRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6, 1, 1, 0.6, 0.35);
     }
+    for (const r of [...FILE_BUTTONS, BACK, LOAD, DELETE]) {
+      if (contains(r, this.hoverX, this.hoverY))
+        renderer.drawRect(r.x, r.y, r.w, r.h, 1, 1, 1, 0.15);
+    }
 
-    const info = abs(INFO);
-    const lines: string[] = [];
-    if (this.loading) lines.push('Loading...');
-    else if (this.selected) {
-      const slot = this.selected;
-      const data = this.saves.peek(slot);
-      if (!data || isNewGame(data)) lines.push(`File ${slot}: New Game`);
-      else {
-        const stats = computeStats(data, this.saves.levels);
-        lines.push(`File ${slot}: Level ${data.world}-${data.level}`);
-        lines.push(`Stars: ${stats.stars}`);
-        lines.push(`Complete: ${stats.completePercent}%`);
+    if (this.loading || !this.selected) {
+      drawSlotCentred(renderer, assets, Slot.bigWhite, 'Loading...', HEADING);
+      renderer.end();
+      return;
+    }
+    const slot = this.selected;
+    const data = this.saves.peek(slot);
+    if (!data || isNewGame(data)) {
+      drawSlotCentred(renderer, assets, Slot.bigWhite, `File ${slot}: New Game`, HEADING);
+    } else {
+      const stats = computeStats(data, this.saves.levels);
+      drawSlotCentred(
+        renderer,
+        assets,
+        Slot.bigWhite,
+        `File ${slot}: Level ${data.world}-${data.level}`,
+        HEADING,
+      );
+      if (!this.confirmingDelete) {
         const h = Math.floor(data.secondsPlayed / 3600);
         const m = Math.floor((data.secondsPlayed % 3600) / 60);
         const s = data.secondsPlayed % 60;
-        lines.push(`Time Played: ${h}h ${m}m ${s}s`);
+        const lines = [
+          `Stars: ${stats.stars}`,
+          slot === 3 ? 'Record: I HATE CHICKEN' : `Record: ${data.wins}-${data.losses}`,
+          `Complete: ${stats.completePercent}%`,
+          `Time Played: ${h}h ${m}m ${s}s`,
+        ];
+        lines.forEach((line, i) => {
+          drawSlot(renderer, assets, Slot.smallWhite, line, LINE_X, LINE_YS[i] ?? 0);
+        });
       }
-    } else lines.push('Select a file');
-
-    if (this.confirmingDelete && this.selected) {
-      renderer.drawText(font2, 'Are you sure you want', info.x + info.w / 2, info.y + 12, {
-        align: 'center',
-      });
-      renderer.drawText(
-        font2,
-        `to delete File ${this.selected}?`,
-        info.x + info.w / 2,
-        info.y + 32,
-        {
-          align: 'center',
-        },
-      );
-      const { yes, no } = this.confirmButtons();
-      drawButton(renderer, font2, yes, 'Yes', contains(yes, this.hoverX, this.hoverY));
-      drawButton(renderer, font2, no, 'No', contains(no, this.hoverX, this.hoverY));
-    } else {
-      let y = info.y + 10;
-      lines.forEach((line, i) => {
-        renderer.drawText(i === 0 ? font1 : font2, line, info.x + 12, y);
-        y += i === 0 ? 34 : 20;
-      });
+    }
+    if (this.confirmingDelete) {
+      drawSlot(renderer, assets, Slot.smallGreen, 'Are you sure you want', 120, 478);
+      drawSlot(renderer, assets, Slot.smallGreen, `to delete File ${slot}?`, 130, 498);
+      drawSlot(renderer, assets, Slot.smallWhite, 'Yes', 137, 528);
+      drawSlot(renderer, assets, Slot.smallWhite, 'No', 241, 528);
+      for (const r of [CONFIRM_YES, CONFIRM_NO]) {
+        if (contains(r, this.hoverX, this.hoverY))
+          renderer.drawRect(r.x, r.y, r.w, r.h, 1, 1, 1, 0.15);
+      }
     }
     renderer.end();
   }

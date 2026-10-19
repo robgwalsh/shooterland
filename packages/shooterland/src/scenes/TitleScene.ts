@@ -4,11 +4,15 @@ import type { Renderer } from '../render/Renderer';
 import type { Scene, SceneContext } from './Scene';
 import { contains, rect } from './ui';
 
-/** Button hot-spots painted into shooterland.png. */
-const START = rect(45, 462, 96, 108);
-const QUIT = rect(205, 462, 96, 106);
+/** Button hot-spots painted into shooterland.png (`FUN_004025a3`). */
+const START = rect(43, 459, 97, 111);
+const QUIT = rect(204, 459, 97, 111);
+const BETA = { x: 450, y: 110 };
 
 export class TitleScene implements Scene {
+  private hoverX = -1;
+  private hoverY = -1;
+
   constructor(
     private readonly assets: Assets,
     private readonly actions: { onStart: () => void; onQuit: () => void },
@@ -18,11 +22,16 @@ export class TitleScene implements Scene {
 
   update(_dt: number, input: readonly InputEvent[]): void {
     for (const e of input) {
+      if (e.type === 'move') {
+        this.hoverX = e.x;
+        this.hoverY = e.y;
+        continue;
+      }
       if (e.type === 'key' && (e.key === 'Enter' || e.key === ' ')) {
         this.actions.onStart();
         return;
       }
-      if (e.type !== 'down') continue;
+      if (e.type !== 'down' || e.button !== 0) continue;
       if (contains(START, e.x, e.y)) {
         this.actions.onStart();
         return;
@@ -37,8 +46,11 @@ export class TitleScene implements Scene {
   draw(renderer: Renderer): void {
     renderer.begin();
     renderer.drawImage(this.assets.image('shooterland'), 0, 0);
-    const beta = this.assets.image('beta');
-    renderer.drawImage(beta, 800 - beta.width - 8, 8);
+    renderer.drawImage(this.assets.image('beta'), BETA.x, BETA.y);
+    for (const r of [START, QUIT]) {
+      if (contains(r, this.hoverX, this.hoverY))
+        renderer.drawRect(r.x, r.y, r.w, r.h, 1, 1, 1, 0.12);
+    }
     renderer.end();
   }
 

@@ -30,4 +30,4 @@ Playground URL parameters: `?level=1-11&seed=3` jumps into a level, `?scene=titl
 
 ## Status
 
-Worlds 1 to 6-13 are playable with the rules reconstructed so far. `docs/GAPS.md` lists every rule and constant that still needs confirming against the original exe, and `docs/RECONCILIATION.md` is the checklist for doing that.
+Worlds 1 to 6-13 are playable with the rules read from the disassembled exe (`docs/RULES.md`, `docs/DISASSEMBLY.md`). `docs/GAPS.md` is the audit trail per rule, and `docs/RECONCILIATION.md` lists the side-by-side checks against the original that a disassembly cannot settle (animation feel, audio).

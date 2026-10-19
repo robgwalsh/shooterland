@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-test('store: dragging a weight onto Mary loads it and charges its price', async ({ page }) => {
+test('store: dragging a weight onto one of Mary\'s lanes loads it and charges its price', async ({
+  page,
+}) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
@@ -16,26 +18,31 @@ test('store: dragging a weight onto Mary loads it and charges its price', async 
     if (s) s.money = 5;
   });
 
-  // Store button in the HUD panel (600 + 40..96, 36..54).
-  await page.mouse.click(box.x + 600 + 68, box.y + 45);
+  // The Store button sits in the panel at (630,397) 66x19.
+  await page.mouse.click(box.x + 663, box.y + 406);
   await expect
     .poll(() => page.evaluate(() => window.__shooterland?.debug.session()?.storeOpen ?? false))
     .toBe(true);
 
-  // Press the first item (1-weight) and drag it to Mary's bubble under the board.
-  const lane = await page.evaluate(
-    () => window.__shooterland?.debug.session()?.shooters.bottom.lane ?? 6,
-  );
-  await page.mouse.move(box.x + 608 + 28, box.y + 60 + 30 + 20);
+  // Mary's bar parks at lane 10 while the store is open, so her bubble is at (430,540) 62x62.
+  await expect
+    .poll(() => page.evaluate(() => window.__shooterland?.debug.session()?.shooters.bottom.lane))
+    .toBe(10);
+  // Press the 1-weight slot (655,420) and drag it onto the bubble.
+  await page.mouse.move(box.x + 675, box.y + 440);
   await page.mouse.down();
-  await page.mouse.move(box.x + 300, box.y + 400, { steps: 5 });
-  await page.mouse.move(box.x + 20 + lane * 40 + 20, box.y + 540 + 20, { steps: 5 });
+  await page.mouse.move(box.x + 500, box.y + 500, { steps: 5 });
+  await page.mouse.move(box.x + 461, box.y + 571, { steps: 5 });
   await page.waitForTimeout(100);
   if (process.env.SMOKE_SHOT_STORE) await canvas.screenshot({ path: process.env.SMOKE_SHOT_STORE });
   await page.mouse.up();
 
   await expect
-    .poll(() => page.evaluate(() => window.__shooterland?.debug.session()?.shooters.bottom.loaded))
+    .poll(() =>
+      page.evaluate(
+        () => window.__shooterland?.debug.session()?.shooters.bottom.lanes[0]?.loaded ?? -2,
+      ),
+    )
     .toBe(12); // TileId.Weight1
   expect(await page.evaluate(() => window.__shooterland?.debug.session()?.money)).toBe(3);
   expect(await page.evaluate(() => window.__shooterland?.debug.session()?.storeOpen)).toBe(false);

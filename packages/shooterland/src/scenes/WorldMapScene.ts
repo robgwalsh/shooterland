@@ -1,38 +1,53 @@
 import type { Assets, WorldAssets } from '../assets/AssetLoader';
+import { GRID_SIZE } from '../core/constants';
 import type { LevelData } from '../core/level/LevelData';
 import { bestTime, hasStar, isCleared, starsForNextWorld } from '../core/save/SaveData';
 import type { SaveService } from '../core/save/SaveService';
+import { TileId } from '../core/types';
 import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
-import { checkFrame, RING, starFrame } from '../render/sprites';
+import {
+  bottomShooterRect,
+  CHECK_FRAMES,
+  checkFrame,
+  MINI_PX,
+  miniRect,
+  starFrame,
+} from '../render/sprites';
+import { drawSlot, Slot } from './fonts';
 import type { Scene, SceneContext } from './Scene';
 import { contains, type Rect, rect } from './ui';
 
-/** Hot-spots painted into worldN/map.png. */
-const TAB = (i: number): Rect => rect(117 + 83 * i, 460, 78, 22);
-const MENU = rect(90, 486, 46, 44);
-const STATS = rect(142, 486, 44, 44);
-const PREVIEW = rect(617, 486, 44, 44);
-const PLAY = rect(670, 486, 46, 44);
-const NODE_W = 50;
+/** Hot-spots painted into worldN/map.png, as the exe registers them (`FUN_004025a3`). */
+const TAB = (i: number): Rect => rect(116 + 82 * i, 465, 80, 15);
+const MENU = rect(89, 488, 44, 44);
+const STATS = rect(141, 488, 44, 44);
+const PREVIEW = rect(617, 488, 44, 44);
+const PLAY = rect(669, 488, 44, 44);
+const NODE_W = 60;
 const NODE_H = 40;
+/** The preview overlay: wood panel and mini tiles (`FUN_00404660`). */
+const PREVIEW_PANEL = { x: 200, y: 100 };
+const PREVIEW_GRID = { x: 265, y: 165, step: 21 };
+/** The check mark and star cycle through their 36 frames every 36 ms. */
+const CHECK_TICKS_PER_FRAME = 2;
 
 export interface WorldMapActions {
   onPlay: (level: LevelData) => void;
-  onPreview: (level: LevelData) => void;
   onMenu: () => void;
   onStats: () => void;
 }
 
 /**
- * The spiral of 25 gems per world, with tabs for worlds 1-7. Cleared levels
- * get a check mark, starred ones a spinning star, locked ones are dimmed.
+ * The spiral of 25 gems per world with tabs for worlds 1-7. Cleared levels
+ * get a check mark, starred ones a spinning star; hovering Preview shows the
+ * level's layout in mini tiles; Play opens the level intro.
  */
 export class WorldMapScene implements Scene {
   private world: number;
   private selected: number;
   private worldAssets: WorldAssets | null = null;
-  private t = 0;
+  private ticks = 0;
   private toast: { text: string; until: number } | null = null;
   private hoverX = -1;
   private hoverY = -1;
@@ -69,11 +84,11 @@ export class WorldMapScene implements Scene {
   }
 
   private say(text: string): void {
-    this.toast = { text, until: this.t + 2 };
+    this.toast = { text, until: this.ticks + 120 };
   }
 
-  update(dt: number, input: readonly InputEvent[]): void {
-    this.t += dt;
+  update(_dt: number, input: readonly InputEvent[]): void {
+    this.ticks++;
     for (const e of input) {
       if (e.type === 'move') {
         this.hoverX = e.x;
@@ -85,7 +100,7 @@ export class WorldMapScene implements Scene {
         else if (e.key === 'Escape') this.actions.onMenu();
         continue;
       }
-      if (e.type !== 'down') continue;
+      if (e.type !== 'down' || e.button !== 0) continue;
       for (let i = 0; i < 7; i++) {
         if (contains(TAB(i), e.x, e.y)) this.selectWorld(i + 1);
       }
@@ -98,10 +113,6 @@ export class WorldMapScene implements Scene {
       if (contains(MENU, e.x, e.y)) this.actions.onMenu();
       else if (contains(STATS, e.x, e.y)) this.actions.onStats();
       else if (contains(PLAY, e.x, e.y)) this.play();
-      else if (contains(PREVIEW, e.x, e.y)) {
-        const level = this.levelAt(this.selected - 1);
-        if (level) this.actions.onPreview(level);
-      }
     }
   }
 
@@ -134,17 +145,17 @@ export class WorldMapScene implements Scene {
 
   draw(renderer: Renderer): void {
     const { assets, saves } = this;
-    const font1 = assets.font('font1');
-    const font2 = assets.font('font2');
     renderer.begin(0.2, 0.17, 0.12);
     const wa = this.worldAssets;
     if (!wa) {
-      renderer.drawText(font1, 'Loading...', 400, 280, { align: 'center' });
+      drawSlot(renderer, assets, Slot.white, 'Loading...', 400, 280, 'center');
       renderer.end();
       return;
     }
     renderer.drawImage(wa.map, 0, 0);
 
+    const checks = assets.image('checkandstar');
+    const frame = Math.floor(this.ticks / CHECK_TICKS_PER_FRAME) % CHECK_FRAMES;
     const nodes = assets.mapNodes;
     nodes.forEach((n, i) => {
       const level = this.levelAt(i);
@@ -152,21 +163,27 @@ export class WorldMapScene implements Scene {
         renderer.drawRect(n.x, n.y, NODE_W, NODE_H, 0, 0, 0, 0.6);
         return;
       }
-      const unlocked = saves.levelUnlocked(level.world, level.level);
-      if (!unlocked) renderer.drawRect(n.x, n.y, NODE_W, NODE_H, 0, 0, 0, 0.5);
-      if (hasStar(saves.data, level)) {
-        const r = starFrame(Math.floor(this.t * 24) + i);
-        renderer.drawSprite(assets.image('checkandstar'), r.x, r.y, r.w, r.h, n.x - 7, n.y);
-      } else if (isCleared(saves.data, level.world, level.level)) {
-        const r = checkFrame(0);
-        renderer.drawSprite(assets.image('checkandstar'), r.x, r.y, r.w, r.h, n.x - 7, n.y);
+      if (!saves.levelUnlocked(level.world, level.level)) {
+        renderer.drawRect(n.x, n.y, NODE_W, NODE_H, 0, 0, 0, 0.5);
       }
-      if (i + 1 === this.selected) {
-        renderer.drawSprite(wa.tiles, RING.x, RING.y, RING.w, RING.h, n.x + 5, n.y);
+      if (isCleared(saves.data, level.world, level.level)) {
+        const c = checkFrame(frame);
+        renderer.drawSprite(checks, c.x, c.y, c.w, c.h, n.x + 2, n.y - 4);
+        if (hasStar(saves.data, level)) {
+          const s = starFrame(frame);
+          renderer.drawSprite(checks, s.x, s.y, s.w, s.h, n.x - 8, n.y - 10);
+        }
       }
+      drawSlot(renderer, assets, Slot.smallWhite, `${i + 1}`, n.x + 36, n.y + 19);
     });
 
-    // Tabs for worlds the player cannot enter yet are shaded.
+    // The player's marker is Mary's bar, parked on the selected gem.
+    const marker = nodes[this.selected - 1];
+    if (marker) {
+      const m = bottomShooterRect(1);
+      renderer.drawSprite(assets.image('shooters'), m.x, m.y, m.w, m.h, marker.x + 10, marker.y);
+    }
+
     for (let i = 0; i < 7; i++) {
       if (!saves.worldUnlocked(i + 1)) {
         const r = TAB(i);
@@ -174,37 +191,47 @@ export class WorldMapScene implements Scene {
       }
     }
 
-    const level = this.levelAt(this.selected - 1);
-    const stars = saves.stars();
-    renderer.drawText(font2, `Stars: ${stars}`, 20, 20, { r: 1, g: 0.95, b: 0.5 });
+    const star = starFrame(frame);
+    renderer.drawSprite(checks, star.x, star.y, star.w, star.h, -12, 5);
+    drawSlot(renderer, assets, Slot.white, `X ${saves.stars()}`, 35, 10);
     const next = starsForNextWorld(saves.data, assets.levels, this.starThresholds);
-    if (next)
-      renderer.drawText(font2, `Next: ${next.needed} stars`, 20, 40, { r: 1, g: 0.95, b: 0.5 });
+    if (next) drawSlot(renderer, assets, Slot.smallWhite, `Next: ${next.needed} stars`, 0, 40);
+
+    const level = this.levelAt(this.selected - 1);
     if (level) {
+      drawSlot(renderer, assets, Slot.bigWhite, `Level ${level.world}-${level.level}`, 210, 491);
       const best = bestTime(saves.data, level.world, level.level);
-      renderer.drawText(font1, `Level ${level.world}-${level.level}`, 400, 540, {
-        align: 'center',
-      });
-      renderer.drawText(
-        font2,
-        best > 0
-          ? `Best time: ${best}   Time to beat: ${level.timeToBeat}`
-          : `Time to beat: ${level.timeToBeat}`,
-        400,
-        574,
-        { align: 'center' },
-      );
+      drawSlot(renderer, assets, Slot.smallBlack, `Best time: ${best}`, 360, 500);
+      drawSlot(renderer, assets, Slot.smallWhite, `Time to beat: ${level.timeToBeat}`, 488, 500);
     }
-    if (this.toast && this.t < this.toast.until) {
+
+    if (this.toast && this.ticks < this.toast.until) {
       renderer.drawRect(200, 250, 400, 40, 0, 0, 0, 0.75);
-      renderer.drawText(font2, this.toast.text, 400, 262, { align: 'center' });
+      drawSlot(renderer, assets, Slot.smallWhite, this.toast.text, 400, 262, 'center');
     }
-    // Hover feedback on the art's buttons.
     for (const r of [MENU, STATS, PREVIEW, PLAY]) {
       if (contains(r, this.hoverX, this.hoverY))
         renderer.drawRect(r.x, r.y, r.w, r.h, 1, 1, 1, 0.15);
     }
+    if (level && contains(PREVIEW, this.hoverX, this.hoverY)) this.drawPreview(renderer, level);
     renderer.end();
+  }
+
+  /** Hovering Preview shows the board in mini tiles on the wood panel. */
+  private drawPreview(renderer: Renderer, level: LevelData): void {
+    const { assets } = this;
+    renderer.drawImage(assets.image('wood'), PREVIEW_PANEL.x, PREVIEW_PANEL.y);
+    const mini = assets.image('mini');
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const x = PREVIEW_GRID.x + col * PREVIEW_GRID.step;
+        const y = PREVIEW_GRID.y + row * PREVIEW_GRID.step;
+        renderer.drawRect(x, y, MINI_PX, MINI_PX, 0, 0, 0);
+        const id = level.cells[row * GRID_SIZE + col] ?? TileId.Empty;
+        const r = miniRect(id, level.world);
+        if (r) renderer.drawSprite(mini, r.x, r.y, r.w, r.h, x, y);
+      }
+    }
   }
 
   leave(): void {}

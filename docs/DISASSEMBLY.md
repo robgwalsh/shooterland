@@ -48,6 +48,8 @@ exported with a script and read in full; everything in `RULES.md` marked
 | `FUN_004083ff` | Star count from best times |
 | `FUN_0040d4b7` / `FUN_004019f2` | Font slots / LMNOpc font loader (colour applied per slot) |
 | `FUN_0040d862` | Image loading and colour keys (black for most, magenta for bonus/bonusbaddies/suffle) |
+| `FUN_0040cf7b` / `FUN_0040ed69` | Per-screen backdrop: map.png on the map, background.png on the intro, backgrounddark.png (which carries the HUD art) during play and on the result screen |
+| `FUN_0040e785` | Blits supplement.gif (the store panel) at (600,366), only while the store is open |
 | `FUN_0040f68c` | Tile draw: id < 12 from the world sheet (row = id, column = frame); 12..19 from items.png row id - 12; 20/21/22 and 23..27 from the sheet's last two columns |
 
 ## Globals worth knowing

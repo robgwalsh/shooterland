@@ -6,8 +6,8 @@ import { bestTime, lastLevelOfWorld, type SlotNumber, worldExists } from '../cor
 import type { SaveService } from '../core/save/SaveService';
 import type { SessionEvent } from '../core/sim/GameSession';
 import { GameplayScene } from '../scenes/GameplayScene';
+import { IntroScene } from '../scenes/IntroScene';
 import { LogoScene } from '../scenes/LogoScene';
-import { PreviewScene } from '../scenes/PreviewScene';
 import { ResultScene } from '../scenes/ResultScene';
 import { SaveSelectScene } from '../scenes/SaveSelectScene';
 import type { SceneManager } from '../scenes/Scene';
@@ -37,9 +37,13 @@ export interface FlowOptions {
   readonly isDestroyed: () => boolean;
 }
 
+/** Leaving a level after this many seconds counts as a loss (`FUN_00402dc6`). */
+const QUIT_LOSS_SECONDS = 5;
+
 /**
- * The screen graph: logo -> title -> save files -> world map -> (preview) ->
- * gameplay -> result -> world map, plus stats and the pause menu's quit.
+ * The screen graph, as the exe's state machine has it: logo -> title -> files
+ * -> world map -> level intro -> gameplay -> result -> world map, plus stats
+ * and the retry / quit prompts.
  */
 export class GameFlow {
   gameplay: GameplayScene | null = null;
@@ -94,7 +98,6 @@ export class GameFlow {
         this.opts.rules.starThresholds,
         {
           onPlay: (level) => void this.play(level),
-          onPreview: (level) => this.preview(level),
           onMenu: () => this.title(),
           onStats: () => this.stats(),
         },
@@ -103,24 +106,31 @@ export class GameFlow {
     );
   }
 
-  preview(level: LevelData): void {
-    this.scenes.go(
-      new PreviewScene(this.assets, this.saves, level, {
-        onPlay: () => void this.play(level),
-        onBack: () => this.worldMap({ world: level.world, level: level.level }),
-      }),
-    );
-  }
-
   stats(): void {
     this.scenes.go(new StatsScene(this.assets, this.saves, () => this.worldMap()));
   }
 
-  async play(level: LevelData, seed = this.opts.nextSeed()): Promise<void> {
+  /**
+   * Loads a level: the intro screen shows the board standing still, and Play
+   * starts the clock. `skipIntro` jumps straight in (deep links, retries).
+   */
+  async play(level: LevelData, seed = this.opts.nextSeed(), skipIntro = false): Promise<void> {
     const world = await this.assets.world(level.world);
     if (this.opts.isDestroyed()) return;
     const previousBest = bestTime(this.saves.data, level.world, level.level);
     this.audio.music(`world${Math.min(7, Math.max(1, level.world))}`);
+    const leave = (scene: GameplayScene): void => {
+      // Leaving a level after a few seconds of play counts as a loss, as in the exe.
+      if (scene.session.seconds > QUIT_LOSS_SECONDS) {
+        void this.saves.finishLevel(level, 'lost', {
+          seconds: scene.session.seconds,
+          shots: 0,
+          combos: 0,
+          comboPieces: 0,
+        });
+        this.opts.emit({ type: 'save', slot: this.saves.slot });
+      }
+    };
     const scene = new GameplayScene({
       assets: this.assets,
       world,
@@ -129,7 +139,14 @@ export class GameFlow {
       rules: this.opts.rules,
       audio: this.audio,
       onEvents: (events) => this.opts.emit({ type: 'session', events }),
-      onQuit: () => this.worldMap({ world: level.world, level: level.level }),
+      onQuit: () => {
+        leave(scene);
+        this.worldMap({ world: level.world, level: level.level });
+      },
+      onRetry: () => {
+        leave(scene);
+        void this.play(level, this.opts.nextSeed(), true);
+      },
       onFinish: ({ outcome, session }) => {
         this.gameplay = null;
         void this.saves.finishLevel(level, outcome, {
@@ -145,7 +162,7 @@ export class GameFlow {
             world: level.world,
             level: level.level,
             seconds: session.seconds,
-            star: session.seconds <= level.timeToBeat,
+            star: session.elapsedSeconds <= level.timeToBeat,
           });
         } else {
           this.opts.emit({ type: 'defeat', world: level.world, level: level.level });
@@ -157,9 +174,14 @@ export class GameFlow {
             session,
             outcome,
             previousBest,
+            record: {
+              wins: this.saves.data.wins,
+              losses: this.saves.data.losses,
+              slot: this.saves.slot,
+            },
             finalLevel: this.isFinalLevel(level),
             onContinue: (action) => {
-              if (action === 'retry') void this.play(level);
+              if (action === 'retry') void this.play(level, this.opts.nextSeed(), true);
               else if (action === 'next') this.worldMap(this.nextPosition(level));
               else this.worldMap({ world: level.world, level: level.level });
             },
@@ -168,7 +190,16 @@ export class GameFlow {
       },
     });
     this.gameplay = scene;
-    this.scenes.go(scene);
+    if (skipIntro) {
+      this.scenes.go(scene);
+    } else {
+      this.scenes.go(
+        new IntroScene(this.assets, world, scene, {
+          onPlay: () => this.scenes.go(scene),
+          onBack: () => this.worldMap({ world: level.world, level: level.level }),
+        }),
+      );
+    }
     void this.saves.setPosition(level.world, level.level);
     this.opts.emit({ type: 'levelStart', world: level.world, level: level.level });
   }

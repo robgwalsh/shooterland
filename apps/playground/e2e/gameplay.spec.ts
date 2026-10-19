@@ -18,11 +18,11 @@ test('plays level 1-1: aiming and clicking fires both shooters', async ({ page }
   // The canvas is 800x600 CSS pixels here, so virtual coordinates map 1:1.
   const box = await canvas.boundingBox();
   if (!box) throw new Error('canvas has no bounding box');
-  // Column 6, row 6 of the board (board origin 20,20; 40px cells).
-  await page.mouse.click(box.x + 20 + 6 * 40 + 20, box.y + 20 + 6 * 40 + 20);
+  // Column 6, row 6 of the board (board origin 40,40; 40px cells).
+  await page.mouse.click(box.x + 40 + 6 * 40 + 20, box.y + 40 + 6 * 40 + 20);
   await expect.poll(shots, { timeout: 5_000 }).toBe(1);
 
-  // Shots land and the shooters reload (no projectiles left in flight).
+  // Shots land and nothing is left in flight.
   await expect
     .poll(() => page.evaluate(() => window.__shooterland?.debug.session()?.inFlight.length ?? -1), {
       timeout: 5_000,

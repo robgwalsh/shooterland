@@ -35,7 +35,7 @@ The component renders a 4:3 canvas that fills its container. By default the game
 | `audio` | `'webaudio'` | `'none'` disables sound and music. |
 | `muted`, `volume` | `false`, `1` | Master mute and volume (0..1). |
 | `pauseWhenHidden` | `true` | Pauses the simulation while the tab is hidden. |
-| `startScene` | `'logo'` | `'title'`, `'worldMap'`, or `{ kind: 'gameplay', world, level, seed }` to jump straight in. |
+| `startScene` | `'logo'` | `'title'`, `'worldMap'`, or `{ kind: 'gameplay', world, level, seed }` to jump straight into a level, skipping its intro screen. |
 | `seed` | time-based | Seed for the deterministic simulation. |
 | `onEvent` | | Receives `ready`, `levelStart`, `levelComplete`, `defeat`, `save`, `quit`, `session` and `error` events. |
 | `fallback` | | Rendered when WebGL2 is unavailable. |
@@ -56,7 +56,7 @@ const handle = createGame(document.querySelector('canvas')!, { assetBaseUrl: '/s
 
 ## Fidelity
 
-The original C++ source is lost; the rules were reconstructed from the shipped level files, their tutorial messages, the game's strings and a partial Android port. Every constant that could not be verified is listed in the repository's `docs/GAPS.md` and lives in one rules file so it can be corrected without touching the engine.
+The original C++ source is lost, so the rules were read from a disassembly of the shipped exe: ammo odds, shot stepping, ramps, the weight push/crush walk, the kill table, Rosco's timing, store prices, star thresholds and the stats formulas (the repository's `docs/RULES.md` and `docs/DISASSEMBLY.md`). Every constant lives in one rules table (`DEFAULT_RULES` from `shooterland/core`) so it can be tuned without touching the engine; one original quirk, the store's blank lane slots, sits behind `storeBlanksOtherLanes`.
 
 ## Licence
 

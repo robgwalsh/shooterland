@@ -29,3 +29,16 @@ to jump into a level. Drop screenshots into `docs/evidence/` named by what they 
 - Thresholds: 2-25's tutorial text says 25 stars; the code uses 30 (G9).
 - The world-7 survival level and world 6 levels 14-25 are locked (G20).
 - World advancement past world 6 never happens in the original; the rebuild follows it.
+- Keys: the exe only reads Escape (leave the level); the rebuild also pauses on P and
+  accepts Enter/Space on menus.
+- The result screen prints the average combo size with two decimals instead of printf's six.
+- The world-tab slide transition and the marker walking between gems are instant.
+- A weight that backs up into an occupied cell still vanishes (the exe would leave it as a
+  solid tile); the case needs two shots to stop in the same cell in the same frame.
+
+## Art findings worth knowing
+
+- The exe draws `backgrounddark.png` during play and on the result screen: it is the scene
+  darkened *with the finished HUD art* (enemy icons, Retry/Pause/Quit, the "$" box, Store,
+  the NEXT boxes). The plain `background.png` is only the level intro's backdrop.
+- `supplement.gif` (the store panel) is blitted over the HUD only while the store is open.

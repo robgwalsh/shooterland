@@ -1,11 +1,13 @@
 import type { Assets, WorldAssets } from '../assets/AssetLoader';
-import { VIRTUAL_WIDTH } from '../core/constants';
+import { GRID_SIZE, TICK_RATE, TILE_PX } from '../core/constants';
 import type { GameSession } from '../core/sim/GameSession';
 import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
 import { letterRect } from '../render/sprites';
+import { drawSlot, drawSlotCentred, Slot } from './fonts';
+import { LAYOUT } from './layout';
 import type { Scene, SceneContext } from './Scene';
-import { contains, drawButton, rect } from './ui';
+import { contains, type Rect, rect } from './ui';
 
 export type ResultAction = 'next' | 'retry' | 'map';
 
@@ -16,116 +18,126 @@ export interface ResultOptions {
   readonly outcome: 'won' | 'lost';
   /** Best time before this run, 0 if never cleared. */
   readonly previousBest: number;
+  /** Wins and losses on the file after this result, for "Current Record". */
+  readonly record: { wins: number; losses: number; slot: number };
   /** True when this was the last playable level of the game. */
   readonly finalLevel: boolean;
   readonly onContinue: (action: ResultAction) => void;
 }
 
-const RETRY = rect(250, 500, 130, 36);
-const MAP = rect(420, 500, 130, 36);
-const CONTINUE = rect(335, 500, 130, 36);
+/** OK and Retry (`FUN_004025a3`). */
+const OK = rect(210, 530, 80, 60);
+const RETRY = rect(310, 530, 80, 60);
+const TEXT_X = 100;
 
 /**
- * Level complete / defeat screen: the darkened background, the bobbing
- * letter strip and the run's numbers (exe strings), then Retry / Continue.
+ * Level complete / defeat screen (`FUN_00406ea9`): the darkened background
+ * with the grid, the bobbing letter strip, the run's numbers, then OK / Retry.
  */
 export class ResultScene implements Scene {
-  private t = 0;
+  private ticks = 0;
   private hoverX = -1;
   private hoverY = -1;
 
   constructor(private readonly opts: ResultOptions) {}
 
   enter(_ctx: SceneContext): void {
-    this.t = 0;
+    this.ticks = 0;
   }
 
-  update(dt: number, input: readonly InputEvent[]): void {
-    this.t += dt;
+  update(_dt: number, input: readonly InputEvent[]): void {
+    this.ticks++;
     for (const e of input) {
       if (e.type === 'move') {
         this.hoverX = e.x;
         this.hoverY = e.y;
         continue;
       }
-      if (this.t < 0.4) continue;
+      if (this.ticks < 24) continue;
       if (e.type === 'key') {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'Enter' || e.key === ' ')
           this.opts.onContinue(this.opts.outcome === 'won' ? 'next' : 'retry');
-        } else if (e.key === 'Escape') this.opts.onContinue('map');
+        else if (e.key === 'Escape') this.opts.onContinue('map');
         continue;
       }
-      if (e.type !== 'down') continue;
-      if (this.opts.outcome === 'won') {
-        if (contains(CONTINUE, e.x, e.y)) this.opts.onContinue('next');
-      } else if (contains(RETRY, e.x, e.y)) this.opts.onContinue('retry');
-      else if (contains(MAP, e.x, e.y)) this.opts.onContinue('map');
+      if (e.type !== 'down' || e.button !== 0) continue;
+      if (contains(OK, e.x, e.y))
+        this.opts.onContinue(this.opts.outcome === 'won' ? 'next' : 'map');
+      else if (contains(RETRY, e.x, e.y)) this.opts.onContinue('retry');
     }
+  }
+
+  private drawButton(renderer: Renderer, r: Rect, label: string): void {
+    const lit = contains(r, this.hoverX, this.hoverY);
+    const c = lit ? 0.9 : 0.4;
+    renderer.drawRect(r.x - 1, r.y - 1, r.w + 2, r.h + 2, c, c, c);
+    renderer.drawRect(r.x, r.y, r.w, r.h, 0.08, 0.05, 0.02);
+    drawSlotCentred(renderer, this.opts.assets, Slot.white, label, r);
   }
 
   draw(renderer: Renderer): void {
     const { assets, world, session, outcome } = this.opts;
     renderer.begin();
     renderer.drawImage(world.backgroundDark, 0, 0);
-
-    const word = outcome === 'won' ? 'COMPLETE' : 'DEFEAT';
-    const sheet = assets.image(outcome === 'won' ? 'complete' : 'defeat');
-    const size = 60;
-    const startX = (VIRTUAL_WIDTH - word.length * size) / 2;
-    for (let i = 0; i < word.length; i++) {
-      const r = letterRect(i, size);
-      const y = 110 + Math.sin(this.t * 3 + i * 0.6) * 10;
-      renderer.drawSprite(sheet, r.x, r.y, r.w, r.h, startX + i * size, y);
+    const { board } = LAYOUT;
+    for (let i = 0; i <= GRID_SIZE; i++) {
+      renderer.drawRect(board.x, board.y + i * TILE_PX, board.size, 1, 1 / 255, 0, 11 / 255);
+      renderer.drawRect(board.x + i * TILE_PX, board.y, 1, board.size, 1 / 255, 0, 11 / 255);
     }
 
-    const font1 = assets.font('font1');
-    const font2 = assets.font('font2');
-    const cx = VIRTUAL_WIDTH / 2;
-    const secs = Math.floor(session.seconds);
+    const t = (this.ticks * 1000) / TICK_RATE;
+    const won = outcome === 'won';
+    const sheet = assets.image(won ? 'complete' : 'defeat');
+    const count = won ? 8 : 6;
+    const startX = won ? 51 : 70;
+    const step = won ? 60 : 80;
+    for (let i = 0; i < count; i++) {
+      const r = letterRect(i, 60);
+      const y = 40 + Math.sin((t + i * 800) / 500) * 20 + 20;
+      renderer.drawSprite(sheet, r.x, r.y, r.w, r.h, startX + i * step, y);
+    }
+
+    const secs = session.elapsedSeconds;
     const ttb = session.level.timeToBeat;
     const best = this.opts.previousBest > 0 ? Math.min(this.opts.previousBest, secs) : secs;
-    const lines: string[] = [];
-    if (outcome === 'won') {
-      if (this.opts.finalLevel) lines.push("Congratulations!  You've won the game!");
-      lines.push(`Time: ${secs} s (Best Time: ${best} s)`);
-      lines.push(`Time to beat: ${ttb} s`);
-      lines.push(
-        secs <= ttb
-          ? "You have this level's star!"
-          : `Beat ${ttb} seconds to acquire this level's star.`,
-      );
-      lines.push(`Number of shots: ${session.stats.shots}`);
-      lines.push(`Number of combos: ${session.stats.combos}`);
-      lines.push(
-        `Average combo size: ${
-          session.stats.combos > 0
-            ? (session.stats.comboPieces / session.stats.combos).toFixed(2)
-            : 'N/A'
-        }`,
-      );
-    } else {
-      lines.push('Rosco found your piggy bank empty!');
-      lines.push(`You lasted ${secs} s with ${session.stats.shots} shots.`);
-      lines.push('Do you wish to retry the level?');
-    }
-    let y = 220;
-    lines.forEach((line, i) => {
-      renderer.drawText(i === 0 ? font1 : font2, line, cx, y, { align: 'center' });
-      y += i === 0 ? 40 : 26;
-    });
-    if (this.t >= 0.4) {
-      if (outcome === 'won') {
-        drawButton(
-          renderer,
-          font2,
-          CONTINUE,
-          'Continue',
-          contains(CONTINUE, this.hoverX, this.hoverY),
-        );
-      } else {
-        drawButton(renderer, font2, RETRY, 'Retry', contains(RETRY, this.hoverX, this.hoverY));
-        drawButton(renderer, font2, MAP, 'World map', contains(MAP, this.hoverX, this.hoverY));
-      }
+    drawSlot(renderer, assets, Slot.white, `Time: ${secs} s (Best Time: ${best} s)`, TEXT_X, 180);
+    drawSlot(renderer, assets, Slot.white, `Time to beat: ${ttb} s`, TEXT_X, 213);
+    let starLine: string;
+    if (session.level.world === 7) {
+      starLine = won
+        ? "Congratulations!  You've won the game!"
+        : `Live at least ${ttb} seconds to beat this final challenge of the game!`;
+    } else if (won && secs <= ttb) starLine = "You have this level's star!";
+    else starLine = `Beat ${ttb} seconds to acquire this level's star.`;
+    drawSlot(renderer, assets, Slot.smallWhite, starLine, TEXT_X, 246);
+    drawSlot(renderer, assets, Slot.white, `Number of shots: ${session.stats.shots}`, TEXT_X, 300);
+    drawSlot(
+      renderer,
+      assets,
+      Slot.white,
+      `Number of combos: ${session.stats.combos}`,
+      TEXT_X,
+      333,
+    );
+    const avg =
+      session.stats.combos > 0
+        ? `Average combo size: ${(session.stats.comboPieces / session.stats.combos).toFixed(2)}`
+        : 'Average combo size: N/A';
+    drawSlot(renderer, assets, Slot.white, avg, TEXT_X, 366);
+    const { record } = this.opts;
+    drawSlot(
+      renderer,
+      assets,
+      Slot.white,
+      record.slot === 3
+        ? 'Current Record: I HATE CHICKEN!'
+        : `Current Record: ${record.wins}-${record.losses}`,
+      TEXT_X,
+      430,
+    );
+    if (this.ticks >= 24) {
+      this.drawButton(renderer, OK, 'OK');
+      this.drawButton(renderer, RETRY, 'Retry');
     }
     renderer.end();
   }

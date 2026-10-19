@@ -233,7 +233,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
           const level = loaded.level(startScene.world, startScene.level);
           if (!level) throw new Error(`no level ${startScene.world}-${startScene.level}`);
           await saves.select(1);
-          await flow.play(level, startScene.seed ?? seed);
+          await flow.play(level, startScene.seed ?? seed, true);
         }
       })
       .catch((error: unknown) => {

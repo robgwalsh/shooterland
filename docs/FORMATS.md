@@ -56,6 +56,10 @@ with a colour (see the font-slot table in DISASSEMBLY.md).
 - Colour keys: black for every sheet except `bonus.png`, `bonusbaddies.png` and
   `suffle.png` (magenta); `menusupplement.png`, `shooterlandsign.png`, `plusminus.png`
   and the backgrounds are opaque. `bubbles.png` is drawn at alpha 128.
+- `worldN/background.png` is the level intro's backdrop (bare side panel);
+  `worldN/backgrounddark.png` is the gameplay and result backdrop, darkened and carrying the
+  finished HUD art; `worldN/supplement.gif` is the store panel drawn at (600,366) while the
+  store is open.
 - `worldN/image.gif` 440x480: row = tile id for ids 0-11 (bomb + blast frames, six thingies
   with 11 frames, five enemies with 9 frames); the last two columns of rows 7-11 hold the
   ring (9,7), mine (10,7), grey block (9,8), brown block (10,8) and the enemy blocks.

@@ -1,14 +1,13 @@
 import type { Assets, WorldAssets } from '../assets/AssetLoader';
 import type { GameAudio } from '../audio/AudioEngine';
-import { TILE_PX, VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/constants';
+import { GRID_SIZE, TICK_RATE, TILE_PX } from '../core/constants';
 import type { LevelData } from '../core/level/LevelData';
 import type { Rules } from '../core/rules';
 import { type Command, GameSession, type SessionEvent } from '../core/sim/GameSession';
-import { DIR_DELTA, isThingie } from '../core/tiles';
+import { enemyKind, isEnemy, isThingie } from '../core/tiles';
 import {
   ENEMY_KINDS,
   type EnemyKind,
-  type GridPos,
   type ItemKind,
   type ShooterSide,
   TileId,
@@ -16,26 +15,25 @@ import {
 import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
 import {
-  BUBBLE,
-  bombFrame,
   bottomShooterRect,
-  checkFrame,
   enemyFrame,
-  explosionFrame,
+  fireFrame,
   itemRect,
   letterRect,
   MINE,
   PIGGY,
-  ROSCO,
+  RING,
   rightShooterRect,
   roscoFrame,
   STUMP,
-  spriteFor,
   swirlFrame,
+  thingieFrame,
+  tileSheetRect,
 } from '../render/sprites';
-import { cellAt, cellX, cellY, inRect, LAYOUT } from './layout';
+import { drawSlot, drawSlotCentred, Slot } from './fonts';
+import { aimedLane, BUBBLE_PX, bubbleOrigins, cellAt, cellX, cellY, LAYOUT } from './layout';
 import type { Scene, SceneContext } from './Scene';
-import { contains, drawButton, drawDim, drawPanel, rect } from './ui';
+import { contains, type Rect } from './ui';
 
 export interface GameplayResult {
   readonly outcome: 'won' | 'lost';
@@ -51,165 +49,66 @@ export interface GameplayOptions {
   readonly audio?: GameAudio | undefined;
   readonly onFinish: (result: GameplayResult) => void;
   readonly onEvents?: ((events: readonly SessionEvent[]) => void) | undefined;
-  /** The player confirmed "quit" from the pause menu. */
+  /** The player confirmed Quit (or pressed Escape). */
   readonly onQuit?: (() => void) | undefined;
-}
-
-const PAUSE_RESUME = rect(560, 430, 190, 36);
-const PAUSE_QUIT = rect(560, 480, 190, 36);
-const PAUSE_YES = rect(260, 460, 110, 34);
-const PAUSE_NO = rect(430, 460, 110, 34);
-
-interface Effect {
-  kind: 'fire' | 'swirl';
-  col: number;
-  row: number;
-  frame: number;
+  /** The player confirmed Retry. */
+  readonly onRetry?: (() => void) | undefined;
 }
 
 const ENEMY_LABEL: Record<EnemyKind, string> = {
-  crony: 'Cronies',
-  crazy: 'Crazies',
-  fatty: 'Fatties',
-  fangie: 'Fangies',
-  skully: 'Skullies',
+  crony: 'Cronies:',
+  crazy: 'Crazies:',
+  fatty: 'Fatties:',
+  fangie: 'Fangies:',
+  skully: 'Skullies:',
 };
 
-const STORE_ITEMS: readonly ItemKind[] = [
-  TileId.Weight1,
-  TileId.Weight2,
-  TileId.Weight3,
-  TileId.RampTopLeft,
-  TileId.RampTopRight,
-  TileId.RampBottomLeft,
-  TileId.RampBottomRight,
+/** Store slots in the exe's order: weights 1-3, the bomb, the four ramps. */
+const STORE_SLOTS: readonly { item: ItemKind; rect: Rect }[] = [
+  { item: TileId.Weight1, rect: LAYOUT.store.weights[0] },
+  { item: TileId.Weight2, rect: LAYOUT.store.weights[1] },
+  { item: TileId.Weight3, rect: LAYOUT.store.weights[2] },
+  { item: TileId.Bomb, rect: LAYOUT.store.bomb },
+  { item: TileId.RampTopLeft, rect: LAYOUT.store.ramps[0] },
+  { item: TileId.RampTopRight, rect: LAYOUT.store.ramps[1] },
+  { item: TileId.RampBottomLeft, rect: LAYOUT.store.ramps[2] },
+  { item: TileId.RampBottomRight, rect: LAYOUT.store.ramps[3] },
 ];
-const ITEM_NAME: Record<ItemKind, string> = {
-  [TileId.Weight1]: '1-weight',
-  [TileId.Weight2]: '2-weight',
-  [TileId.Weight3]: '3-weight',
-  [TileId.RampTopLeft]: 'ramp',
-  [TileId.RampTopRight]: 'ramp',
-  [TileId.RampBottomLeft]: 'ramp',
-  [TileId.RampBottomRight]: 'ramp',
-};
-const STORE_HEADER = 30;
-const STORE_ROW = 44;
-const BUBBLE_PX = 62;
+
+/** Ticks per animation frame: 100 ms for idle frames, 56 ms for destroy frames (as in the exe). */
+const IDLE_FRAME_TICKS = 6;
+const DESTROY_FRAMES = 11;
+
+interface Wobble {
+  readonly frames: readonly number[];
+  readonly start: number;
+  readonly until: number;
+}
 
 /**
- * One level of play. Translates pointer input into simulation commands,
- * advances the session once per tick and draws the board, shooters, HUD,
- * Rosco and transient effects.
+ * One level of play, drawn and controlled the way the exe does it
+ * (docs/RULES.md, docs/DISASSEMBLY.md "Layout"): the pointer aims both bars,
+ * a left click on the board fires, the right button or the Store button
+ * opens the store, the three panel buttons retry, pause and quit.
  */
 export class GameplayScene implements Scene {
   readonly session: GameSession;
   private readonly assets: Assets;
   private readonly world: WorldAssets;
-  private readonly effects: Effect[] = [];
   private pending: Command[] = [];
-  private pointer: GridPos | null = null;
   private pointerX = -1;
   private pointerY = -1;
-  /** Store item being dragged toward a shooter bubble. */
-  private drag: ItemKind | null = null;
   private frameTicks = 0;
   private finished = false;
   paused = false;
-  private quitPrompt = false;
-
-  /** P or Escape pauses; while paused the pause menu takes over the screen. */
-  private keyInput(key: string): void {
-    if (key === 'p' || key === 'P' || key === 'Escape') {
-      if (this.quitPrompt) this.quitPrompt = false;
-      else this.paused = !this.paused;
-    }
-  }
-
-  private pauseInput(e: InputEvent): void {
-    if (e.type !== 'down') return;
-    if (this.quitPrompt) {
-      if (contains(PAUSE_YES, e.x, e.y)) this.opts.onQuit?.();
-      else if (contains(PAUSE_NO, e.x, e.y)) this.quitPrompt = false;
-      return;
-    }
-    if (contains(PAUSE_RESUME, e.x, e.y)) this.paused = false;
-    else if (contains(PAUSE_QUIT, e.x, e.y)) this.quitPrompt = true;
-  }
-
-  /** Pause screen (tutorial 2-10): the letters plus the enemy/kill-method chart. */
-  private drawPause(renderer: Renderer): void {
-    const { assets, world, session } = this;
-    const font1 = assets.font('font1');
-    const font2 = assets.font('font2');
-    drawDim(renderer, 0.7);
-    const pause = assets.image('pause');
-    for (let i = 0; i < 5; i++) {
-      const r = letterRect(i, 80);
-      renderer.drawSprite(pause, r.x, r.y, r.w, r.h, 40, 90 + i * 84);
-    }
-    const chartX = 190;
-    const colX = [chartX + 110, chartX + 190, chartX + 270, chartX + 350];
-    const headY = 110;
-    renderer.drawText(font2, 'How to defeat them', chartX, 80);
-    const bomb = bombFrame(0);
-    renderer.drawSprite(world.tiles, bomb.x, bomb.y, bomb.w, bomb.h, colX[0] ?? 0, headY);
-    renderer.drawText(font2, 'Combo', (colX[1] ?? 0) + 20, headY + 12, { align: 'center' });
-    const w1 = itemRect(TileId.Weight1);
-    if (w1) renderer.drawSprite(assets.image('items'), w1.x, w1.y, w1.w, w1.h, colX[2] ?? 0, headY);
-    renderer.drawSprite(world.tiles, MINE.x, MINE.y, MINE.w, MINE.h, colX[3] ?? 0, headY);
-    const check = checkFrame(0);
-    const checks = assets.image('checkandstar');
-    ENEMY_KINDS.forEach((kind, i) => {
-      const y = headY + 60 + i * 56;
-      const e = enemyFrame(kind, 0);
-      renderer.drawSprite(world.tiles, e.x, e.y, e.w, e.h, chartX, y);
-      renderer.drawText(font2, ENEMY_LABEL[kind], chartX + 46, y + 12);
-      const rule = session.rules.enemies[kind];
-      const cells: (boolean | string)[] = [
-        rule.bomb,
-        rule.comboMin === null ? false : `${rule.comboMin}+`,
-        rule.weight,
-        rule.mine,
-      ];
-      cells.forEach((v, c) => {
-        const x = colX[c] ?? 0;
-        if (typeof v === 'string') {
-          renderer.drawText(font1, v, x + 20, y + 4, { align: 'center', r: 1, g: 0.9, b: 0.4 });
-        } else if (v) {
-          renderer.drawSprite(checks, check.x, check.y, check.w, check.h, x + 4, y + 10, 32, 20);
-        }
-      });
-    });
-    if (this.quitPrompt) {
-      drawPanel(renderer, rect(230, 400, 340, 110));
-      renderer.drawText(font2, 'Are you sure you', 400, 412, { align: 'center' });
-      renderer.drawText(font2, 'wish to quit?', 400, 432, { align: 'center' });
-      drawButton(
-        renderer,
-        font2,
-        PAUSE_YES,
-        'Yes',
-        contains(PAUSE_YES, this.pointerX, this.pointerY),
-      );
-      drawButton(renderer, font2, PAUSE_NO, 'No', contains(PAUSE_NO, this.pointerX, this.pointerY));
-    } else {
-      drawButton(
-        renderer,
-        font2,
-        PAUSE_RESUME,
-        'Resume',
-        contains(PAUSE_RESUME, this.pointerX, this.pointerY),
-      );
-      drawButton(
-        renderer,
-        font2,
-        PAUSE_QUIT,
-        'Quit level',
-        contains(PAUSE_QUIT, this.pointerX, this.pointerY),
-      );
-    }
-  }
+  /** The confirmation asked by the Retry or Quit button. */
+  prompt: 'retry' | 'quit' | null = null;
+  private musicOn = true;
+  /** Item being dragged from the store toward a lane bubble. */
+  private drag: ItemKind | null = null;
+  private bombQuantity = 1;
+  /** Landed-thingy wobbles by cell index. */
+  private readonly wobbles = new Map<number, Wobble>();
 
   constructor(private readonly opts: GameplayOptions) {
     this.assets = opts.assets;
@@ -221,7 +120,7 @@ export class GameplayScene implements Scene {
 
   update(_dt: number, input: readonly InputEvent[]): void {
     this.handleInput(input);
-    if (this.paused) {
+    if (this.paused || this.prompt) {
       this.pending = [];
       return;
     }
@@ -231,12 +130,6 @@ export class GameplayScene implements Scene {
     this.frameTicks++;
     for (const e of events) this.onEvent(e);
     if (events.length > 0) this.opts.onEvents?.(events);
-    for (let i = this.effects.length - 1; i >= 0; i--) {
-      const fx = this.effects[i];
-      if (!fx) continue;
-      if (this.frameTicks % 4 === 0) fx.frame++;
-      if (fx.frame >= 7) this.effects.splice(i, 1);
-    }
     if (!this.finished && this.session.status !== 'playing') {
       this.finished = true;
       this.opts.onFinish({
@@ -246,8 +139,9 @@ export class GameplayScene implements Scene {
     }
   }
 
+  // ---- input ---------------------------------------------------------------
+
   private handleInput(input: readonly InputEvent[]): void {
-    const { session } = this;
     for (const e of input) {
       if (e.type === 'key') {
         this.keyInput(e.key);
@@ -255,94 +149,162 @@ export class GameplayScene implements Scene {
       }
       this.pointerX = e.x;
       this.pointerY = e.y;
-      if (this.paused) {
-        this.pauseInput(e);
+      if (e.type === 'move') {
+        if (!this.session.storeOpen && !this.paused && !this.prompt) this.aim(e.x, e.y);
         continue;
       }
-      const cell = cellAt(e.x, e.y);
-      if (session.storeOpen) {
-        this.storeInput(e);
+      if (e.type === 'up') {
+        if (e.button === 0 && this.drag !== null) this.drop(e.x, e.y);
         continue;
       }
-      if ((e.type === 'move' || e.type === 'down') && cell) {
-        this.pointer = cell;
-        this.pending.push({ t: 'aim', col: cell.col, row: cell.row });
+      // down
+      if (this.prompt) {
+        this.promptInput(e.x, e.y);
+        continue;
       }
-      if (e.type !== 'down') continue;
-      if (cell) {
+      if (e.button === 2) {
+        if (!this.paused) this.toggleStore();
+        continue;
+      }
+      if (e.button !== 0) continue;
+      if (contains(LAYOUT.hud.menuButtons[1], e.x, e.y)) {
+        this.paused = !this.paused;
+        continue;
+      }
+      if (this.paused) continue;
+      if (contains(LAYOUT.hud.menuButtons[0], e.x, e.y)) {
+        this.prompt = 'retry';
+        continue;
+      }
+      if (contains(LAYOUT.hud.menuButtons[2], e.x, e.y)) {
+        this.prompt = 'quit';
+        continue;
+      }
+      if (contains(LAYOUT.hud.musicButton, e.x, e.y) && !this.session.storeOpen) {
+        this.toggleMusic();
+        continue;
+      }
+      if (contains(LAYOUT.hud.storeButton, e.x, e.y)) {
+        this.toggleStore();
+        continue;
+      }
+      if (this.session.storeOpen) {
+        this.storeInput(e.x, e.y);
+        continue;
+      }
+      if (e.x < LAYOUT.hud.x) {
+        this.aim(e.x, e.y);
         this.pending.push({ t: 'fire' });
-      } else if (inRect(e.x, e.y, LAYOUT.hud.storeButton, LAYOUT.hud.x, 0)) {
-        this.pending.push({ t: 'openStore' });
       }
     }
   }
 
-  /**
-   * Store (tutorial 1-11): press an item, drag it onto Mary's red bubble or
-   * Poindexter's blue bubble and release to buy it into that shooter.
-   * Clicking outside the panel closes the store.
-   */
-  private storeInput(e: InputEvent): void {
-    if (e.type === 'down') {
-      const item = this.storeItemAt(e.x, e.y);
-      if (item !== null) {
-        const cost = this.session.rules.prices[item] ?? 0;
-        if (this.session.money >= cost) this.drag = item;
-        return;
-      }
-      if (!inRect(e.x, e.y, this.storePanel())) this.pending.push({ t: 'closeStore' });
+  private keyInput(key: string): void {
+    if (key === 'Escape') {
+      if (this.prompt) this.prompt = null;
+      else this.opts.onQuit?.();
+    } else if (key === 'p' || key === 'P') {
+      if (!this.prompt) this.paused = !this.paused;
+    }
+  }
+
+  private aim(x: number, y: number): void {
+    const b = this.session.shooters.bottom;
+    const r = this.session.shooters.right;
+    this.pending.push({
+      t: 'aim',
+      bottom: aimedLane(x, LAYOUT.board.x, b.size),
+      right: aimedLane(y, LAYOUT.board.y, r.size),
+    });
+  }
+
+  private toggleStore(): void {
+    if (this.session.storeOpen) {
+      this.pending.push({ t: 'closeStore' });
+      this.drag = null;
+    } else {
+      this.pending.push({ t: 'openStore' });
+      this.bombQuantity = 1;
+    }
+  }
+
+  private toggleMusic(): void {
+    this.musicOn = !this.musicOn;
+    const world = Math.min(7, Math.max(1, this.opts.level.world));
+    this.opts.audio?.music(this.musicOn ? `world${world}` : null);
+  }
+
+  private promptInput(x: number, y: number): void {
+    const [confirm, back] = LAYOUT.prompt.buttons;
+    if (confirm && contains(confirm, x, y)) {
+      const which = this.prompt;
+      this.prompt = null;
+      if (which === 'retry') this.opts.onRetry?.();
+      else this.opts.onQuit?.();
+    } else if (back && contains(back, x, y)) {
+      this.prompt = null;
+    }
+  }
+
+  /** Press on a store slot, the +/- buttons, or a thingy on the board (`FUN_00408561`). */
+  private storeInput(x: number, y: number): void {
+    if (contains(LAYOUT.store.minus, x, y)) {
+      this.bombQuantity = Math.max(1, this.bombQuantity - 1);
       return;
     }
-    if (e.type === 'up' && this.drag !== null) {
-      const shooter = this.bubbleAt(e.x, e.y);
-      if (shooter) this.pending.push({ t: 'buy', item: this.drag, shooter });
-      this.drag = null;
+    if (contains(LAYOUT.store.plus, x, y)) {
+      this.bombQuantity++;
+      return;
+    }
+    for (const slot of STORE_SLOTS) {
+      if (contains(slot.rect, x, y)) {
+        this.drag = slot.item;
+        return;
+      }
+    }
+    if (x < LAYOUT.hud.x) {
+      const cell = cellAt(x, y);
+      const id = cell ? this.session.grid.get(cell.col, cell.row) : TileId.Empty;
+      if (isThingie(id)) this.drag = id as ItemKind;
     }
   }
 
-  private storeItemAt(x: number, y: number): ItemKind | null {
-    const panel = this.storePanel();
-    if (!inRect(x, y, panel)) return null;
-    const index = Math.floor((y - panel.y - STORE_HEADER) / STORE_ROW);
-    return STORE_ITEMS[index] ?? null;
+  private drop(x: number, y: number): void {
+    const item = this.drag;
+    this.drag = null;
+    if (item === null) return;
+    const target = this.bubbleAt(x, y);
+    if (!target) return;
+    this.pending.push({
+      t: 'buy',
+      item,
+      shooter: target.side,
+      lane: target.lane,
+      quantity: item === TileId.Bomb ? this.bombQuantity : 1,
+    });
   }
 
-  private storePanel(): { x: number; y: number; w: number; h: number } {
-    return {
-      x: LAYOUT.hud.x + 8,
-      y: 60,
-      w: LAYOUT.hud.width - 16,
-      h: STORE_HEADER + STORE_ITEMS.length * STORE_ROW + 8,
-    };
-  }
-
-  /** The 62px bubbles drawn over each shooter while the store is open. */
-  private bubbleRect(side: ShooterSide): { x: number; y: number; w: number; h: number } {
+  private bubbleRects(side: ShooterSide): Rect[] {
     const s = this.session.shooters[side];
-    const half = BUBBLE_PX / 2;
-    if (side === 'bottom') {
-      const cx = cellX(s.lane) + (TILE_PX * s.size) / 2;
-      return {
-        x: cx - half,
-        y: LAYOUT.bottomShooterY + TILE_PX / 2 - half,
-        w: BUBBLE_PX,
-        h: BUBBLE_PX,
-      };
-    }
-    const cy = cellY(s.lane) + (TILE_PX * s.size) / 2;
-    return {
-      x: LAYOUT.rightShooterX + TILE_PX / 2 - half,
-      y: cy - half,
-      w: BUBBLE_PX,
-      h: BUBBLE_PX,
-    };
+    return bubbleOrigins(side, s.lane, s.size).map((o) =>
+      side === 'bottom'
+        ? { x: o, y: 540, w: BUBBLE_PX, h: BUBBLE_PX }
+        : { x: 540, y: o, w: BUBBLE_PX, h: BUBBLE_PX },
+    );
   }
 
-  private bubbleAt(x: number, y: number): ShooterSide | null {
-    if (inRect(x, y, this.bubbleRect('bottom'))) return 'bottom';
-    if (inRect(x, y, this.bubbleRect('right'))) return 'right';
+  private bubbleAt(x: number, y: number): { side: ShooterSide; lane: number } | null {
+    for (const side of ['bottom', 'right'] as const) {
+      const rects = this.bubbleRects(side);
+      for (let lane = 0; lane < rects.length; lane++) {
+        const r = rects[lane];
+        if (r && contains(r, x, y)) return { side, lane };
+      }
+    }
     return null;
   }
+
+  // ---- events --------------------------------------------------------------
 
   private onEvent(e: SessionEvent): void {
     const audio = this.opts.audio;
@@ -351,288 +313,454 @@ export class GameplayScene implements Scene {
         audio?.sfx('shoot');
         break;
       case 'landed':
-        if (isThingie(e.ammo)) audio?.sfx('thingyhit');
+        if (isThingie(e.ammo) && e.at.col < GRID_SIZE && e.at.row < GRID_SIZE) {
+          audio?.sfx('thingyhit');
+          // The exe wobbles a landed thingy for 0.8 to 8.8 s (frames 3-6 or 7-10 of its row).
+          const vertical = e.dir === 'up' || e.dir === 'down';
+          const frames = vertical ? [7, 8, 9, 10, 9, 8] : [3, 4, 5, 6, 5, 4];
+          const seed = (e.at.col * 31 + e.at.row * 17 + this.frameTicks) % 480;
+          this.wobbles.set(e.at.row * GRID_SIZE + e.at.col, {
+            frames,
+            start: this.frameTicks,
+            until: this.frameTicks + 48 + seed,
+          });
+        }
         break;
       case 'bought':
         audio?.sfx('pop');
         break;
       case 'bomb':
+      case 'mine':
         audio?.sfx('bomb');
-        this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
         break;
       case 'combo':
         audio?.sfx('combo');
-        for (const c of e.cells)
-          this.effects.push({ kind: 'swirl', col: c.col, row: c.row, frame: 0 });
         break;
       case 'enemyKilled':
-        audio?.sfx('pop');
-        this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
+        if (e.by === 'weight' || e.by === 'mine') audio?.sfx('pop');
         break;
-      case 'mine':
-        audio?.sfx('bomb');
-        this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
-        for (const c of e.cleared)
-          this.effects.push({ kind: 'swirl', col: c.col, row: c.row, frame: 0 });
+      case 'cleared':
+        this.wobbles.delete(e.at.row * GRID_SIZE + e.at.col);
         break;
       default:
         break;
     }
   }
 
+  // ---- drawing -------------------------------------------------------------
+
   draw(renderer: Renderer): void {
-    const { session, world, assets } = this;
-    const thingieFrame = Math.floor(this.frameTicks / 8);
-    const enemyFrame = Math.floor(this.frameTicks / 10);
+    const { session } = this;
+    const hidden = this.paused || this.prompt !== null;
     renderer.begin();
-    renderer.drawImage(world.background, 0, 0);
-
-    // Board.
-    const items = assets.image('items');
-    for (const { col, row, id } of session.grid.positions((id) => id !== TileId.Empty)) {
-      const sprite = spriteFor(
-        id,
-        id >= TileId.Crony && id <= TileId.Skully ? enemyFrame : thingieFrame,
-      );
-      if (!sprite) continue;
-      const tex = sprite.sheet === 'items' ? items : world.tiles;
-      const r = sprite.rect;
-      renderer.drawSprite(tex, r.x, r.y, r.w, r.h, cellX(col), cellY(row));
+    // The exe draws the "dark" variant during play: it carries the finished HUD art.
+    renderer.drawImage(this.world.backgroundDark, 0, 0);
+    if (!hidden) {
+      this.drawBoard(renderer);
+      this.drawGridLines(renderer, false);
+      this.drawAuras(renderer);
+      this.drawBars(renderer);
+      this.drawProjectiles(renderer);
+    } else {
+      this.drawGridLines(renderer, true);
     }
-
-    // Aim guides: the lanes each shooter covers.
-    const b = session.shooters.bottom;
-    const p = session.shooters.right;
-    renderer.drawRect(
-      cellX(b.lane),
-      LAYOUT.board.y,
-      TILE_PX * b.size,
-      LAYOUT.board.size,
-      1,
-      0.2,
-      0.2,
-      0.12,
-    );
-    renderer.drawRect(
-      LAYOUT.board.x,
-      cellY(p.lane),
-      LAYOUT.board.size,
-      TILE_PX * p.size,
-      0.2,
-      0.4,
-      1,
-      0.12,
-    );
-
-    // Shooters and their loaded ammo.
-    const shooters = assets.image('shooters');
-    const br = bottomShooterRect(b.size);
-    renderer.drawSprite(shooters, br.x, br.y, br.w, br.h, cellX(b.lane), LAYOUT.bottomShooterY);
-    this.drawAmmo(
-      renderer,
-      b.loaded,
-      cellX(b.lane) + (TILE_PX * (b.size - 1)) / 2,
-      LAYOUT.bottomShooterY,
-      thingieFrame,
-    );
-    const pr = rightShooterRect(p.size);
-    renderer.drawSprite(shooters, pr.x, pr.y, pr.w, pr.h, LAYOUT.rightShooterX, cellY(p.lane));
-    this.drawAmmo(
-      renderer,
-      p.loaded,
-      LAYOUT.rightShooterX,
-      cellY(p.lane) + (TILE_PX * (p.size - 1)) / 2,
-      thingieFrame,
-    );
-
-    // Projectiles, interpolated toward their next cell.
-    for (const proj of session.inFlight) {
-      const d = DIR_DELTA[proj.dir];
-      const x = cellX(proj.col + d.dc * proj.progress);
-      const y = cellY(proj.row + d.dr * proj.progress);
-      this.drawAmmo(renderer, proj.ammo, x, y, thingieFrame);
-    }
-
-    // Effects.
-    const explosion = assets.image('explosion');
-    for (const fx of this.effects) {
-      const r = fx.kind === 'fire' ? explosionFrame(fx.frame) : swirlFrame(fx.frame + 2);
-      const tex = fx.kind === 'fire' ? world.tiles : explosion;
-      renderer.drawSprite(tex, r.x, r.y, r.w, r.h, cellX(fx.col), cellY(fx.row));
-    }
-
-    this.drawHud(renderer, thingieFrame);
-    if (session.storeOpen) this.drawStore(renderer);
+    this.drawHud(renderer, hidden);
+    if (!hidden) this.drawRosco(renderer);
+    if (session.storeOpen && !hidden) this.drawStore(renderer);
     if (this.paused) this.drawPause(renderer);
+    if (this.prompt) this.drawPrompt(renderer);
     renderer.end();
   }
 
-  private drawAmmo(renderer: Renderer, ammo: number, x: number, y: number, frame: number): void {
-    const sprite = spriteFor(ammo, frame);
-    if (!sprite) return;
-    const tex = sprite.sheet === 'items' ? this.assets.image('items') : this.world.tiles;
-    const r = sprite.rect;
-    renderer.drawSprite(tex, r.x, r.y, r.w, r.h, x, y);
+  private drawTile(renderer: Renderer, id: number, frame: number, x: number, y: number): void {
+    const item = itemRect(id);
+    if (item) {
+      renderer.drawSprite(this.assets.image('items'), item.x, item.y, item.w, item.h, x, y);
+      return;
+    }
+    const r = tileSheetRect(id, frame);
+    if (r) renderer.drawSprite(this.world.tiles, r.x, r.y, r.w, r.h, x, y);
   }
 
-  private drawHud(renderer: Renderer, thingieFrame: number): void {
-    const { session, assets, world } = this;
-    const { hud } = LAYOUT;
-    const font1 = assets.font('font1');
-    const font2 = assets.font('font2');
-    renderer.drawImage(world.supplement, hud.x, 0);
-    renderer.drawText(font2, `${session.money}`, hud.x + hud.moneyBox.x + 6, hud.moneyBox.y + 3, {
-      r: 1,
-      g: 0.95,
-      b: 0.4,
-    });
-
-    let y = hud.counters.y;
-    for (const kind of ENEMY_KINDS) {
-      const n = session.enemies[kind];
-      if (n === 0 && session.level.cells.every((id) => tileKindOf(id) !== kind)) continue;
-      renderer.drawText(font2, `${ENEMY_LABEL[kind]}: ${n}`, hud.counters.x, y);
-      y += hud.counters.lineHeight;
+  /** Idle frame of a tile: landed thingies wobble, enemies breathe, everything else is still. */
+  private idleFrame(id: number, col: number, row: number): number {
+    if (isThingie(id)) {
+      const w = this.wobbles.get(row * GRID_SIZE + col);
+      if (!w) return 0;
+      if (this.frameTicks >= w.until) {
+        this.wobbles.delete(row * GRID_SIZE + col);
+        return 0;
+      }
+      const step = Math.floor((this.frameTicks - w.start) / IDLE_FRAME_TICKS);
+      return w.frames[step % w.frames.length] ?? 0;
     }
-
-    const secs = Math.floor(session.seconds);
-    renderer.drawText(font2, `Time: ${secs}s`, hud.timer.x, hud.timer.y);
-    renderer.drawText(
-      font2,
-      `TTB: ${session.level.timeToBeat}s`,
-      hud.timer.x,
-      hud.timer.y + hud.counters.lineHeight,
-    );
-
-    // Next ammo for each shooter, inside their coloured bubbles.
-    const bubbles = assets.image('bubbles');
-    const nextY = hud.next.y;
-    renderer.drawText(font2, 'Next', hud.x + 12, nextY - 18);
-    renderer.drawSprite(bubbles, BUBBLE.red.x, BUBBLE.red.y, 62, 62, hud.x + 24, nextY);
-    this.drawAmmo(
-      renderer,
-      session.shooters.bottom.next,
-      hud.x + 24 + 11,
-      nextY + 11,
-      thingieFrame,
-    );
-    renderer.drawSprite(bubbles, BUBBLE.blue.x, BUBBLE.blue.y, 62, 62, hud.x + 110, nextY);
-    this.drawAmmo(
-      renderer,
-      session.shooters.right.next,
-      hud.x + 110 + 11,
-      nextY + 11,
-      thingieFrame,
-    );
-
-    // Rosco's route: piggy bank above, stump below.
-    const stump = assets.image('stumpandmoney');
-    renderer.drawSprite(stump, PIGGY.x, PIGGY.y, PIGGY.w, PIGGY.h, hud.piggy.x, hud.piggy.y);
-    renderer.drawSprite(stump, STUMP.x, STUMP.y, STUMP.w, STUMP.h, hud.stump.x, hud.stump.y);
-    const { rosco } = session;
-    if (rosco.phase !== 'lair') {
-      const raccoon = assets.image('raccoon');
-      const frames = rosco.phase === 'toPiggy' ? ROSCO.walkAway : ROSCO.walkTowardWithBag;
-      const f = frames[Math.floor(this.frameTicks / 8) % 2] ?? 0;
-      const r = roscoFrame(f);
-      const y = hud.stump.y + (hud.piggy.y - hud.stump.y) * rosco.position;
-      renderer.drawSprite(raccoon, r.x, r.y, r.w, r.h, hud.piggy.x, y);
+    if (isEnemy(id)) {
+      const cycle = [0, 1, 2, 3, 4, 3, 2, 1, 0, 5, 6, 7, 8, 7, 6, 5];
+      const step = Math.floor(this.frameTicks / IDLE_FRAME_TICKS) + col * 3 + row * 5;
+      return cycle[step % cycle.length] ?? 0;
     }
-    renderer.drawText(font1, `${rosco.countdownSeconds}`, hud.countdown.x, hud.countdown.y, {
-      r: 1,
-      g: 0.3,
-      b: 0.2,
-    });
-
-    if (session.status !== 'playing') {
-      renderer.drawRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, 0, 0, 0, 0.4);
-    }
+    return 0;
   }
 
-  private drawStore(renderer: Renderer): void {
-    const { session, assets } = this;
-    const font2 = assets.font('font2');
-    const items = assets.image('items');
-    const bubbles = assets.image('bubbles');
-    const panel = this.storePanel();
-    renderer.drawRect(panel.x, panel.y, panel.w, panel.h, 0.08, 0.06, 0.04, 0.92);
-    renderer.drawText(font2, 'Drag onto a shooter', panel.x + 8, panel.y + 8);
-    STORE_ITEMS.forEach((item, i) => {
-      const y = panel.y + STORE_HEADER + i * STORE_ROW;
-      const r = itemRect(item);
-      if (r) renderer.drawSprite(items, r.x, r.y, r.w, r.h, panel.x + 8, y);
-      const cost = session.rules.prices[item] ?? 0;
-      const affordable = session.money >= cost;
-      renderer.drawText(font2, `$${cost}  ${ITEM_NAME[item]}`, panel.x + 56, y + 12, {
-        r: affordable ? 0.6 : 0.9,
-        g: affordable ? 1 : 0.4,
-        b: 0.5,
-      });
-    });
-
-    // Drop targets: Mary's red bubble, Poindexter's blue bubble, lit while hovered.
-    const hover = this.drag !== null ? this.bubbleAt(this.pointerX, this.pointerY) : null;
-    for (const side of ['bottom', 'right'] as const) {
-      const b = this.bubbleRect(side);
-      const sprite =
-        side === 'bottom'
-          ? hover === side
-            ? BUBBLE.redLit
-            : BUBBLE.red
-          : hover === side
-            ? BUBBLE.blueLit
-            : BUBBLE.blue;
-      renderer.drawSprite(
-        bubbles,
-        sprite.x,
-        sprite.y,
-        sprite.w,
-        sprite.h,
-        b.x,
-        b.y,
-        b.w,
-        b.h,
-        0.85,
-      );
-    }
-
-    if (this.drag !== null) {
-      const r = itemRect(this.drag);
-      if (r) {
-        renderer.drawSprite(
-          items,
-          r.x,
-          r.y,
-          r.w,
-          r.h,
-          this.pointerX - TILE_PX / 2,
-          this.pointerY - TILE_PX / 2,
+  private drawBoard(renderer: Renderer): void {
+    const { session } = this;
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const id = session.grid.get(col, row);
+        if (id === TileId.Empty) continue;
+        const x = cellX(col);
+        const y = cellY(row);
+        const dying = session.dying(col, row);
+        if (!dying) {
+          this.drawTile(renderer, id, this.idleFrame(id, col, row), x, y);
+          continue;
+        }
+        const frame = Math.min(
+          DESTROY_FRAMES - 1,
+          Math.floor((dying.elapsed * DESTROY_FRAMES) / dying.total),
         );
+        if (dying.kind === 'blast') {
+          // A landed bomb plays the tile sheet's bomb row.
+          const r = thingieFrame(TileId.Thingie1, frame);
+          renderer.drawSprite(this.world.tiles, r.x, r.y - TILE_PX, r.w, r.h, x, y);
+          continue;
+        }
+        if (frame < 7) this.drawTile(renderer, id, 0, x, y);
+        const fx = dying.kind === 'destroyed' ? fireFrame(frame) : swirlFrame(frame);
+        renderer.drawSprite(this.assets.image('explosion'), fx.x, fx.y, fx.w, fx.h, x, y);
       }
     }
   }
 
-  /** Expose the pointer's cell for debugging overlays. */
-  get aimedCell(): GridPos | null {
-    return this.pointer;
+  /** The exe's 14 grid lines each way; the lines around the bars cycle colour (`FUN_004016db`). */
+  private drawGridLines(renderer: Renderer, plain: boolean): void {
+    const { board } = LAYOUT;
+    const t = (this.frameTicks * 1000) / TICK_RATE;
+    const pulse = (period: number): number => (Math.abs(Math.sin(t / period)) * 128 + 128) / 255;
+    const hi = { r: pulse(8000), g: pulse(6400), b: pulse(4800) };
+    const lo = { r: 1 / 255, g: 0, b: 11 / 255 };
+    const b = this.session.shooters.bottom;
+    const r = this.session.shooters.right;
+    for (let i = 0; i <= GRID_SIZE; i++) {
+      const hLit = !plain && i >= r.lane && i <= r.lane + r.size;
+      const vLit = !plain && i >= b.lane && i <= b.lane + b.size;
+      const hc = hLit ? hi : lo;
+      const vc = vLit ? hi : lo;
+      renderer.drawRect(board.x, board.y + i * TILE_PX, board.size, 1, hc.r, hc.g, hc.b);
+      renderer.drawRect(board.x + i * TILE_PX, board.y, 1, board.size, vc.r, vc.g, vc.b);
+    }
+  }
+
+  /** Pulsing red 3 px outline around every enemy (`FUN_004015cc`). */
+  private drawAuras(renderer: Renderer): void {
+    const t = (this.frameTicks * 1000) / TICK_RATE;
+    const red = (Math.abs(Math.sin(t / 1000)) * 128) / 255;
+    for (const p of this.session.grid.positions(isEnemy)) {
+      const x = cellX(p.col) - 1;
+      const y = cellY(p.row) - 1;
+      renderer.drawRect(x, y, TILE_PX, 3, red, 0, 0);
+      renderer.drawRect(x, y + TILE_PX - 1, TILE_PX + 2, 3, red, 0, 0);
+      renderer.drawRect(x, y, 3, TILE_PX, red, 0, 0);
+      renderer.drawRect(x + TILE_PX - 1, y, 3, TILE_PX + 3, red, 0, 0);
+    }
+  }
+
+  /** Bars with their loaded items showing through (`FUN_0040e9d1`). */
+  private drawBars(renderer: Renderer): void {
+    const { session } = this;
+    const shooters = this.assets.image('shooters');
+    const b = session.shooters.bottom;
+    const bx = cellX(b.lane);
+    b.lanes.forEach((lane, i) => {
+      if (lane.loaded !== TileId.Empty) {
+        this.drawTile(renderer, lane.loaded, 0, bx + i * TILE_PX, LAYOUT.bottomBarY);
+      }
+    });
+    const br = bottomShooterRect(b.size);
+    renderer.drawSprite(shooters, br.x, br.y, br.w, br.h, bx, LAYOUT.bottomBarY);
+
+    const r = session.shooters.right;
+    const ry = cellY(r.lane);
+    r.lanes.forEach((lane, i) => {
+      if (lane.loaded !== TileId.Empty) {
+        this.drawTile(renderer, lane.loaded, 0, LAYOUT.rightBarX, ry + i * TILE_PX);
+      }
+    });
+    const rr = rightShooterRect(r.size);
+    renderer.drawSprite(shooters, rr.x, rr.y, rr.w, rr.h, LAYOUT.rightBarX, ry);
+  }
+
+  private drawProjectiles(renderer: Renderer): void {
+    for (const p of this.session.inFlight) {
+      this.drawTile(renderer, p.ammo, 0, cellX(p.col), cellY(p.row));
+    }
+  }
+
+  private drawHud(renderer: Renderer, hidden: boolean): void {
+    const { session, assets } = this;
+    const { hud } = LAYOUT;
+    drawSlotCentred(
+      renderer,
+      assets,
+      Slot.bigWhite,
+      `Level ${session.level.world}-${session.level.level}`,
+      hud.title,
+    );
+    drawSlotCentred(renderer, assets, Slot.yellow, `${session.money}`, hud.money);
+
+    // Enemy counts next to the icons painted into the panel art.
+    const counts = session.enemies;
+    ENEMY_KINDS.forEach((kind, i) => {
+      const pos = hud.counters[i];
+      if (pos) drawSlot(renderer, assets, Slot.bigBlack, `${counts[kind]}`, pos.x, pos.y);
+    });
+
+    if (!hidden) {
+      drawSlot(
+        renderer,
+        assets,
+        Slot.smallBlack,
+        `Time: ${session.elapsedSeconds}s`,
+        hud.time.x,
+        hud.time.y,
+      );
+      drawSlot(
+        renderer,
+        assets,
+        Slot.smallBlack,
+        `TTB: ${session.level.timeToBeat}s`,
+        hud.ttb.x,
+        hud.ttb.y,
+      );
+    }
+
+    // Next item per lane, in black boxes (`FUN_0040e3a8`).
+    const b = session.shooters.bottom;
+    b.lanes.forEach((lane, i) => {
+      const x = hud.nextBottom.xs[3 - b.size + i];
+      if (x === undefined) return;
+      renderer.drawRect(x, hud.nextBottom.y, TILE_PX, TILE_PX, 0, 0, 0);
+      if (lane.next !== TileId.Empty) this.drawTile(renderer, lane.next, 0, x, hud.nextBottom.y);
+    });
+    const r = session.shooters.right;
+    r.lanes.forEach((lane, i) => {
+      const y = hud.nextRight.ys[3 - r.size + i];
+      if (y === undefined) return;
+      renderer.drawRect(hud.nextRight.x, y, TILE_PX, TILE_PX, 0, 0, 0);
+      if (lane.next !== TileId.Empty) this.drawTile(renderer, lane.next, 0, hud.nextRight.x, y);
+    });
+
+    // Music toggle (buttonz.png: 0/1 off, 2/3 on; odd frames are hovered).
+    const hovered = contains(hud.musicButton, this.pointerX, this.pointerY);
+    const frame = (this.musicOn ? 2 : 0) + (hovered ? 1 : 0);
+    const mb = hud.musicButton;
+    renderer.drawSprite(assets.image('buttonz'), frame * mb.w, 0, mb.w, mb.h, mb.x, mb.y);
+
+    // Retry / Pause / Quit (painted into the panel) get an outline under the pointer, as the exe's button class draws.
+    hud.menuButtons.forEach((rect, i) => {
+      const lit = contains(rect, this.pointerX, this.pointerY) || (i === 1 && this.paused);
+      this.drawOutline(renderer, rect, lit);
+    });
+  }
+
+  private drawOutline(renderer: Renderer, rect: Rect, lit: boolean): void {
+    const c = lit ? { r: 0.67, g: 0.67, b: 1 } : { r: 0.25, g: 0.25, b: 0.25 };
+    renderer.drawRect(rect.x - 1, rect.y - 1, rect.w + 2, 1, c.r, c.g, c.b);
+    renderer.drawRect(rect.x - 1, rect.y + rect.h, rect.w + 2, 1, c.r, c.g, c.b);
+    renderer.drawRect(rect.x - 1, rect.y - 1, 1, rect.h + 2, c.r, c.g, c.b);
+    renderer.drawRect(rect.x + rect.w, rect.y - 1, 1, rect.h + 2, c.r, c.g, c.b);
+  }
+
+  /** Stump, piggy bank, Rosco on his rounds and the speed-up countdown (`FUN_00409e61`). */
+  private drawRosco(renderer: Renderer): void {
+    const { assets, session } = this;
+    const sheet = assets.image('stumpandmoney');
+    renderer.drawSprite(sheet, STUMP.x, STUMP.y, STUMP.w, STUMP.h, LAYOUT.stump.x, LAYOUT.stump.y);
+    renderer.drawSprite(sheet, PIGGY.x, PIGGY.y, PIGGY.w, PIGGY.h, LAYOUT.piggy.x, LAYOUT.piggy.y);
+    const { rosco } = session;
+    if (!rosco.emerged) return;
+    const base = { left: 0, down: 2, up: 4, right: 6 }[rosco.facing];
+    const f = roscoFrame(base + rosco.walkFrame);
+    renderer.drawSprite(
+      assets.image('raccoon'),
+      f.x,
+      f.y,
+      f.w,
+      f.h,
+      Math.round(rosco.x),
+      Math.round(rosco.y),
+    );
+    drawSlot(
+      renderer,
+      assets,
+      Slot.smallWhite,
+      `${rosco.countdownSeconds}`,
+      LAYOUT.countdown.x,
+      LAYOUT.countdown.y,
+    );
+  }
+
+  private drawStore(renderer: Renderer): void {
+    const { session, assets } = this;
+    const { store, hud } = LAYOUT;
+    // The panel art covers the next-item boxes while the store is open, as in the exe.
+    renderer.drawImage(this.world.supplement, hud.supplement.x, hud.supplement.y);
+    drawSlotCentred(renderer, assets, Slot.yellow, `${session.money}`, hud.money);
+    const prices = session.rules.prices;
+    for (const slot of STORE_SLOTS) {
+      this.drawTile(renderer, slot.item, 0, slot.rect.x, slot.rect.y);
+      const priceX = slot.rect.x < 700 ? store.priceLeftX : store.priceRightX;
+      drawSlot(renderer, assets, Slot.black, `$${prices[slot.item] ?? 0}`, priceX, slot.rect.y + 5);
+    }
+    const pm = assets.image('plusminus');
+    renderer.drawSprite(pm, 0, 0, 9, 9, store.minus.x, store.minus.y);
+    renderer.drawSprite(pm, 9, 0, 9, 9, store.plus.x, store.plus.y);
+    drawSlot(
+      renderer,
+      assets,
+      Slot.smallWhite,
+      `X${this.bombQuantity}`,
+      store.bombQuantity.x,
+      store.bombQuantity.y,
+    );
+
+    // Drop bubbles over every lane; the one under a dragged item turns red.
+    const bubbles = assets.image('bubbles');
+    const hover = this.drag !== null ? this.bubbleAt(this.pointerX, this.pointerY) : null;
+    for (const side of ['bottom', 'right'] as const) {
+      this.bubbleRects(side).forEach((rect, lane) => {
+        const lit = hover !== null && hover.side === side && hover.lane === lane;
+        renderer.drawSprite(
+          bubbles,
+          lit ? BUBBLE_PX : 0,
+          0,
+          BUBBLE_PX,
+          BUBBLE_PX,
+          rect.x,
+          rect.y,
+          BUBBLE_PX,
+          BUBBLE_PX,
+          0.5,
+        );
+      });
+    }
+
+    if (this.drag !== null) {
+      const x = this.pointerX - TILE_PX / 2;
+      const y = this.pointerY - TILE_PX / 2;
+      this.drawTile(renderer, this.drag, 0, x, y);
+      if (this.drag === TileId.Bomb) {
+        drawSlot(renderer, assets, Slot.smallWhite, `X${this.bombQuantity}`, x + 10, y + 10);
+      } else if (isThingie(this.drag)) {
+        drawSlot(renderer, assets, Slot.smallWhite, `$${prices[this.drag] ?? 0}`, x, y);
+      }
+    }
+  }
+
+  /** Pause screen (`FUN_00407371`): bobbing letters and the kill-method chart. */
+  private drawPause(renderer: Renderer): void {
+    const { assets, session } = this;
+    const { pause } = LAYOUT;
+    const t = (this.frameTicks * 1000) / TICK_RATE;
+    const letters = assets.image('pause');
+    for (let i = 0; i < 5; i++) {
+      const r = letterRect(i, pause.letters.size);
+      const y = pause.letters.y + Math.sin((t + i * 800) / 500) * 15 + 15;
+      renderer.drawSprite(letters, r.x, r.y, r.w, r.h, pause.letters.x + i * pause.letters.step, y);
+    }
+    const [bombX, comboX, weightX, mineX] = pause.headerXs;
+    const bomb = tileSheetRect(TileId.Bomb, 0);
+    if (bomb)
+      renderer.drawSprite(
+        this.world.tiles,
+        bomb.x,
+        bomb.y,
+        bomb.w,
+        bomb.h,
+        bombX ?? 0,
+        pause.headerY,
+      );
+    const pop = swirlFrame(7);
+    renderer.drawSprite(
+      assets.image('explosion'),
+      pop.x,
+      pop.y,
+      pop.w,
+      pop.h,
+      comboX ?? 0,
+      pause.headerY,
+    );
+    const weight = itemRect(TileId.HeavyWeight);
+    if (weight)
+      renderer.drawSprite(
+        assets.image('items'),
+        weight.x,
+        weight.y,
+        weight.w,
+        weight.h,
+        weightX ?? 0,
+        pause.headerY,
+      );
+    renderer.drawSprite(
+      this.world.tiles,
+      MINE.x,
+      MINE.y,
+      MINE.w,
+      MINE.h,
+      mineX ?? 0,
+      pause.headerY,
+    );
+
+    ENEMY_KINDS.forEach((kind, i) => {
+      const y = pause.firstRowY + i * pause.rowStep;
+      const e = enemyFrame(kind, 0);
+      renderer.drawSprite(this.world.tiles, e.x, e.y, e.w, e.h, pause.enemyX, y);
+      drawSlot(renderer, assets, Slot.white, ENEMY_LABEL[kind], pause.nameX, y + 3);
+      const rule = session.rules.enemies[kind];
+      const marks: (number | undefined)[] = [
+        rule.bomb ? bombX : undefined,
+        rule.comboMin !== null ? comboX : undefined,
+        rule.weight ? weightX : undefined,
+        rule.mine ? mineX : undefined,
+      ];
+      marks.forEach((x, c) => {
+        if (x === undefined) return;
+        renderer.drawSprite(this.world.tiles, RING.x, RING.y, RING.w, RING.h, x, y);
+        if (c === 1 && rule.comboMin !== null) {
+          drawSlot(renderer, assets, Slot.white, `${rule.comboMin}`, x + 12, y + 3);
+        }
+      });
+    });
+  }
+
+  /** "Do you wish to retry the level?" / "Are you sure you wish to quit?" on the wood panel. */
+  private drawPrompt(renderer: Renderer): void {
+    const { assets } = this;
+    const { prompt } = LAYOUT;
+    renderer.drawImage(assets.image('wood'), prompt.panel.x, prompt.panel.y);
+    const retry = this.prompt === 'retry';
+    drawSlotCentred(
+      renderer,
+      assets,
+      Slot.white,
+      retry ? 'Do you wish to' : 'Are you sure you',
+      prompt.line1,
+    );
+    drawSlotCentred(
+      renderer,
+      assets,
+      Slot.white,
+      retry ? 'retry the level?' : 'wish to quit?',
+      prompt.line2,
+    );
+    const labels = retry ? ['Retry', 'Back'] : ['Quit', 'Back'];
+    prompt.buttons.forEach((rect, i) => {
+      this.drawOutline(renderer, rect, contains(rect, this.pointerX, this.pointerY));
+      drawSlotCentred(renderer, assets, Slot.smallWhite, labels[i] ?? '', rect);
+    });
   }
 
   leave(): void {}
 }
 
-function tileKindOf(id: number): EnemyKind | null {
-  switch (id) {
-    case TileId.Crony:
-      return 'crony';
-    case TileId.Crazy:
-      return 'crazy';
-    case TileId.Fatty:
-      return 'fatty';
-    case TileId.Fangie:
-      return 'fangie';
-    case TileId.Skully:
-      return 'skully';
-    default:
-      return null;
-  }
-}
+export { enemyKind };
