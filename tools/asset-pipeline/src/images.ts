@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyColorKey, type ColorKey, readGif, readPng, writePng } from './image';
@@ -82,6 +83,8 @@ export function convertWorlds(
   log: (s: string) => void,
 ): WorldOutput[] {
   const out: WorldOutput[] = [];
+  // World 7 reuses world 6 art byte for byte; identical images are written once and shared.
+  const seen = new Map<string, string>();
   for (let w = 1; w <= 7; w++) {
     const src = join(legacyDir, 'graphics', `world${w}`);
     if (!existsSync(src)) break;
@@ -91,8 +94,15 @@ export function convertWorlds(
       name: string,
       img: { width: number; height: number; data: Uint8Array },
     ): string => {
+      const digest = createHash('sha1').update(img.data).digest('hex');
+      const existing = seen.get(digest);
+      if (existing) {
+        log(`worlds/${w}/${name}.png = ${existing}`);
+        return existing;
+      }
       const rel = `worlds/${w}/${name}.png`;
       writePng(join(outDir, rel), img);
+      seen.set(digest, rel);
       log(`${rel} ${img.width}x${img.height}`);
       return rel;
     };

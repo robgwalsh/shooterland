@@ -197,8 +197,8 @@
     },
     "7": {
       "tiles": "worlds/7/tiles.png",
-      "supplement": "worlds/7/supplement.png",
-      "background": "worlds/7/background.png",
+      "supplement": "worlds/6/supplement.png",
+      "background": "worlds/6/background.png",
       "backgroundDark": "worlds/7/backgrounddark.png",
       "map": "worlds/7/map.png"
     }

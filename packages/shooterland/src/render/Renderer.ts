@@ -95,6 +95,20 @@ export class Renderer {
     this.gl.disable(this.gl.SCISSOR_TEST);
   }
 
+  /** Draws on top of a finished frame (cursor, debug), clipped to the virtual area. */
+  drawOverlay(draw: (r: Renderer) => void): void {
+    const { gl, viewport } = this;
+    const { rect } = viewport;
+    const y = viewport.canvasHeight - rect.y - rect.h;
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(rect.x, y, rect.w, rect.h);
+    gl.viewport(rect.x, y, rect.w, rect.h);
+    this.batch.begin();
+    draw(this);
+    this.batch.end();
+    gl.disable(gl.SCISSOR_TEST);
+  }
+
   destroy(): void {
     this.batch.destroy();
     this.white.destroy();
