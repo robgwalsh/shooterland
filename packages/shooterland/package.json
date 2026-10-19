@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Shooterland, the 2006 puzzle game, rebuilt in TypeScript with WebGL rendering and a React component.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robgwalsh/shooterland.git",
+    "directory": "packages/shooterland"
+  },
+  "homepage": "https://github.com/robgwalsh/shooterland/tree/main/packages/shooterland#readme",
+  "bugs": {
+    "url": "https://github.com/robgwalsh/shooterland/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.cjs",
