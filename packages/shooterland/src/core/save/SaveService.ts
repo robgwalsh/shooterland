@@ -79,6 +79,13 @@ export class SaveService {
     await this.commit();
   }
 
+  /** The unlock-everything cheat; persists with the file. */
+  async unlockAll(): Promise<void> {
+    if (this.data.allUnlocked) return;
+    this.data.allUnlocked = true;
+    await this.commit();
+  }
+
   async setPosition(world: number, level: number): Promise<void> {
     if (this.data.world === world && this.data.level === level) return;
     this.data.world = world;

@@ -31,6 +31,10 @@ const PREVIEW_PANEL = { x: 200, y: 100 };
 const PREVIEW_GRID = { x: 265, y: 165, step: 21 };
 /** The check mark and star cycle through their 36 frames every 36 ms. */
 const CHECK_TICKS_PER_FRAME = 2;
+/** Secret: tapping F three times within this window unlocks every level. */
+const CHEAT_KEY = 'f';
+const CHEAT_TAPS = 3;
+const CHEAT_WINDOW_TICKS = 60;
 
 export interface WorldMapActions {
   onPlay: (level: LevelData) => void;
@@ -51,6 +55,7 @@ export class WorldMapScene implements Scene {
   private toast: { text: string; until: number } | null = null;
   private hoverX = -1;
   private hoverY = -1;
+  private cheatTaps: number[] = [];
 
   constructor(
     private readonly assets: Assets,
@@ -98,6 +103,7 @@ export class WorldMapScene implements Scene {
       if (e.type === 'key') {
         if (e.key === 'Enter' || e.key === ' ') this.play();
         else if (e.key === 'Escape') this.actions.onMenu();
+        else if (e.key.toLowerCase() === CHEAT_KEY) this.cheatTap();
         continue;
       }
       if (e.type !== 'down' || e.button !== 0) continue;
@@ -114,6 +120,17 @@ export class WorldMapScene implements Scene {
       else if (contains(STATS, e.x, e.y)) this.actions.onStats();
       else if (contains(PLAY, e.x, e.y)) this.play();
     }
+  }
+
+  private cheatTap(): void {
+    const now = this.ticks;
+    this.cheatTaps = this.cheatTaps.filter((t) => now - t < CHEAT_WINDOW_TICKS);
+    this.cheatTaps.push(now);
+    if (this.cheatTaps.length < CHEAT_TAPS) return;
+    this.cheatTaps = [];
+    if (this.saves.data.allUnlocked) return;
+    void this.saves.unlockAll();
+    this.say('All levels unlocked!');
   }
 
   private selectWorld(w: number): void {

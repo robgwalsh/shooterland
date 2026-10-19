@@ -17,6 +17,8 @@ export interface SaveData {
   combos: number;
   comboPieces: number;
   secondsPlayed: number;
+  /** Set by the unlock-everything cheat: every existing level is playable. */
+  allUnlocked: boolean;
 }
 
 export type SlotNumber = 1 | 2 | 3;
@@ -33,6 +35,7 @@ export function newSave(): SaveData {
     combos: 0,
     comboPieces: 0,
     secondsPlayed: 0,
+    allUnlocked: false,
   };
 }
 
@@ -87,7 +90,7 @@ export function isWorldUnlocked(
   world: number,
 ): boolean {
   if (!worldExists(levels, world)) return false;
-  if (world === 1) return true;
+  if (world === 1 || save.allUnlocked) return true;
   const prevLast = lastLevelOfWorld(levels, world - 1);
   if (prevLast === 0 || !isCleared(save, world - 1, prevLast)) return false;
   return countStars(save, levels) >= (starThresholds[world] ?? Number.POSITIVE_INFINITY);
@@ -103,7 +106,7 @@ export function isLevelUnlocked(
 ): boolean {
   if (!isWorldUnlocked(save, levels, starThresholds, world)) return false;
   if (level > lastLevelOfWorld(levels, world)) return false;
-  return level === 1 || isCleared(save, world, level - 1);
+  return level === 1 || save.allUnlocked || isCleared(save, world, level - 1);
 }
 
 /** Stars still needed to open the next world, or null when everything is open. */
@@ -216,5 +219,6 @@ export function coerceSave(raw: unknown): SaveData | null {
     combos: num(r.combos),
     comboPieces: num(r.comboPieces),
     secondsPlayed: num(r.secondsPlayed),
+    allUnlocked: r.allUnlocked === true,
   };
 }

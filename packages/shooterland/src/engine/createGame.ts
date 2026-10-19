@@ -1,6 +1,6 @@
 import { AssetLoader, type Assets } from '../assets/AssetLoader';
 import { type GameAudio, NullAudio, WebAudioEngine } from '../audio/AudioEngine';
-import { TICK_SECONDS, VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/constants';
+import { TICK_SECONDS } from '../core/constants';
 import { DEFAULT_RULES, type Rules } from '../core/rules';
 import { SaveService } from '../core/save/SaveService';
 import { localStorageSaveStorage, type SaveStorage } from '../core/save/SaveStorage';
@@ -24,11 +24,10 @@ export type GameEvent =
 
 /**
  * Which screen to show once assets are loaded. The game normally starts at
- * the studio logo; the others exist for development and tests. 'boot' skips
+ * the title menu; the others exist for development and tests. 'boot' skips
  * asset loading entirely and shows the plumbing-test scene.
  */
 export type StartScene =
-  | 'logo'
   | 'title'
   | 'worldMap'
   | 'assetViewer'
@@ -52,8 +51,6 @@ export interface GameOptions {
   audio?: 'webaudio' | 'none' | undefined;
   /** Master volume 0..1. Default 1. */
   volume?: number | undefined;
-  /** 'sprite' (default) draws the original arrow and hides the system cursor. */
-  cursor?: 'sprite' | 'system' | undefined;
   /** Resize the canvas backing store to its CSS box automatically. Default true. */
   autoResize?: boolean | undefined;
   /** Upper bound on devicePixelRatio used for the backing store. Default 2. */
@@ -160,7 +157,6 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     if (paused) {
       input.drain();
       scenes.draw(renderer);
-      drawCursor();
       return;
     }
     accumulator += elapsed;
@@ -169,20 +165,9 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
       accumulator -= TICK_SECONDS;
     }
     scenes.draw(renderer);
-    drawCursor();
   };
 
-  // The original drew its own arrow (mouse.png) and hid the system cursor.
-  const drawCursor = (): void => {
-    const a = assets;
-    if (!a || options.cursor === 'system') return;
-    const { x, y } = input;
-    if (x < 0 || y < 0 || x >= VIRTUAL_WIDTH || y >= VIRTUAL_HEIGHT) return;
-    renderer.drawOverlay((r) => r.drawImage(a.image('mouse'), Math.round(x), Math.round(y)));
-  };
-  if (options.cursor !== 'system') canvas.style.cursor = 'none';
-
-  const startScene = options.startScene ?? 'logo';
+  const startScene = options.startScene ?? 'title';
   let ready: Promise<void>;
   if (startScene === 'boot') {
     scenes.go(new BootScene());
@@ -224,8 +209,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
           emit,
           isDestroyed: () => destroyed,
         });
-        if (startScene === 'logo') flow.logo();
-        else if (startScene === 'title') flow.title();
+        if (startScene === 'title') flow.title();
         else if (startScene === 'worldMap') {
           await saves.select(1);
           flow.worldMap();

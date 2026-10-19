@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { type GameHandle, Shooterland, type StartScene } from 'shooterland';
 import { SheetGallery } from './SheetGallery';
 
-type SceneName = 'gameplay' | 'logo' | 'title' | 'worldMap' | 'assetViewer' | 'boot';
-const SCENES: SceneName[] = ['gameplay', 'logo', 'title', 'worldMap', 'assetViewer', 'boot'];
+type SceneName = 'title' | 'gameplay' | 'worldMap' | 'assetViewer' | 'boot';
+const SCENES: SceneName[] = ['title', 'gameplay', 'worldMap', 'assetViewer', 'boot'];
 
 interface Query {
   scene: SceneName;
@@ -17,7 +17,7 @@ function readQuery(): Query {
   const q = new URLSearchParams(window.location.search);
   const scene = q.get('scene');
   return {
-    scene: SCENES.includes(scene as SceneName) ? (scene as SceneName) : 'gameplay',
+    scene: SCENES.includes(scene as SceneName) ? (scene as SceneName) : 'title',
     view: q.get('view') === 'sheets' ? 'sheets' : 'game',
     level: /^\d+-\d+$/.test(q.get('level') ?? '') ? (q.get('level') as string) : '1-1',
     seed: Number.parseInt(q.get('seed') ?? '1', 10) || 1,
@@ -47,7 +47,7 @@ export function App() {
 
   useEffect(() => {
     const q = new URLSearchParams();
-    if (query.scene !== 'gameplay') q.set('scene', query.scene);
+    if (query.scene !== 'title') q.set('scene', query.scene);
     if (query.view !== 'game') q.set('view', query.view);
     if (query.level !== '1-1') q.set('level', query.level);
     if (query.seed !== 1) q.set('seed', String(query.seed));

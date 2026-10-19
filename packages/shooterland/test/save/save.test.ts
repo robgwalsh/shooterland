@@ -87,6 +87,19 @@ describe('progression', () => {
     expect(starsForNextWorld(save, levels, thresholds)).toBeNull();
   });
 
+  it('the unlock-all cheat opens every existing level but no placeholders', () => {
+    const save = newSave();
+    save.allUnlocked = true;
+    expect(isLevelUnlocked(save, levels, thresholds, 1, 2)).toBe(true);
+    expect(isWorldUnlocked(save, levels, thresholds, 6)).toBe(true);
+    expect(isLevelUnlocked(save, levels, thresholds, 6, 13)).toBe(true);
+    expect(isLevelUnlocked(save, levels, thresholds, 6, 14)).toBe(false);
+    expect(isWorldUnlocked(save, levels, thresholds, 7)).toBe(false);
+    expect(countStars(save, levels)).toBe(0);
+    expect(coerceSave({ version: 1, bestTimes: [], allUnlocked: true })?.allUnlocked).toBe(true);
+    expect(coerceSave({ version: 1, bestTimes: [] })?.allUnlocked).toBe(false);
+  });
+
   it('coerces stored JSON defensively', () => {
     expect(coerceSave(null)).toBeNull();
     expect(coerceSave({ version: 99 })).toBeNull();
@@ -114,5 +127,17 @@ describe('SaveService', () => {
     expect(again.stars()).toBe(1);
     await again.remove(2);
     expect((await again.peekAll())[1]).toBeNull();
+  });
+
+  it('persists the unlock-all cheat', async () => {
+    const storage = memorySaveStorage();
+    const svc = new SaveService(storage, levels, thresholds);
+    await svc.select(1);
+    expect(svc.levelUnlocked(5, 20)).toBe(false);
+    await svc.unlockAll();
+    expect(svc.levelUnlocked(5, 20)).toBe(true);
+    const again = new SaveService(storage, levels, thresholds);
+    await again.select(1);
+    expect(again.worldUnlocked(6)).toBe(true);
   });
 });

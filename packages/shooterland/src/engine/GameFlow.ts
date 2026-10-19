@@ -7,7 +7,6 @@ import type { SaveService } from '../core/save/SaveService';
 import type { SessionEvent } from '../core/sim/GameSession';
 import { GameplayScene } from '../scenes/GameplayScene';
 import { IntroScene } from '../scenes/IntroScene';
-import { LogoScene } from '../scenes/LogoScene';
 import { ResultScene } from '../scenes/ResultScene';
 import { SaveSelectScene } from '../scenes/SaveSelectScene';
 import type { SceneManager } from '../scenes/Scene';
@@ -41,7 +40,7 @@ export interface FlowOptions {
 const QUIT_LOSS_SECONDS = 5;
 
 /**
- * The screen graph, as the exe's state machine has it: logo -> title -> files
+ * The screen graph, as the exe's state machine has it: title -> files
  * -> world map -> level intro -> gameplay -> result -> world map, plus stats
  * and the retry / quit prompts.
  */
@@ -56,11 +55,6 @@ export class GameFlow {
     private readonly opts: FlowOptions,
   ) {}
 
-  logo(): void {
-    this.audio.music('titlescreen');
-    this.scenes.go(new LogoScene(this.assets, () => this.title()));
-  }
-
   title(): void {
     this.gameplay = null;
     this.audio.music('titlescreen');
@@ -69,7 +63,7 @@ export class GameFlow {
         onStart: () => this.saveSelect(),
         onQuit: () => {
           this.opts.emit({ type: 'quit' });
-          this.logo();
+          this.title();
         },
       }),
     );

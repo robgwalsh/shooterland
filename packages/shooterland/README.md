@@ -35,7 +35,7 @@ The component fills its container and draws the game as the largest 4:3 box that
 | `audio` | `'webaudio'` | `'none'` disables sound and music. |
 | `muted`, `volume` | `false`, `1` | Master mute and volume (0..1). |
 | `pauseWhenHidden` | `true` | Pauses the simulation while the tab is hidden. |
-| `startScene` | `'logo'` | `'title'`, `'worldMap'`, or `{ kind: 'gameplay', world, level, seed }` to jump straight into a level, skipping its intro screen. |
+| `startScene` | `'title'` | `'worldMap'`, or `{ kind: 'gameplay', world, level, seed }` to jump straight into a level, skipping its intro screen. |
 | `seed` | time-based | Seed for the deterministic simulation. |
 | `onEvent` | | Receives `ready`, `levelStart`, `levelComplete`, `defeat`, `save`, `quit`, `session` and `error` events. |
 | `fallback` | | Rendered when WebGL2 is unavailable. |
