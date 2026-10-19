@@ -154,6 +154,26 @@ export function swirlFrame(frame: number): SpriteRect {
   return rect(Math.min(frame, 10) * T, T);
 }
 
+/**
+ * `mini.png` (120x560): 6 columns x 28 rows of 20px preview tiles whose row
+ * index is the legacy tile id. Thingie rows carry one column per world.
+ */
+export const MINI_PX = 20;
+export function miniRect(id: number, world: number): SpriteRect | null {
+  if (id < 0 || id > 27) return null;
+  const col = isThingie(id) ? Math.max(0, Math.min(5, world - 1)) : 0;
+  return rect(col * MINI_PX, id * MINI_PX, MINI_PX, MINI_PX);
+}
+
+/** `checkandstar.png` (2304x80): 36 frames of 64x40, a check mark on row 0 and a spinning star on row 1. */
+export const CHECK_FRAMES = 36;
+export function checkFrame(frame: number): SpriteRect {
+  return rect((frame % CHECK_FRAMES) * 64, 0, 64, 40);
+}
+export function starFrame(frame: number): SpriteRect {
+  return rect((frame % CHECK_FRAMES) * 64, 40, 64, 40);
+}
+
 /** Letter strips: `complete.png` 8x60x60, `defeat.png` 6x60x60, `pause.png` 5x80x80. */
 export function letterRect(index: number, size: number): SpriteRect {
   return rect(0, index * size, size, size);

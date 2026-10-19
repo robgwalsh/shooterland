@@ -9,8 +9,8 @@ const SIZES = [
   { label: 'Fluid (100%)', width: undefined },
 ] as const;
 
-type SceneName = 'gameplay' | 'assetViewer' | 'boot';
-const SCENES: SceneName[] = ['gameplay', 'assetViewer', 'boot'];
+type SceneName = 'gameplay' | 'logo' | 'title' | 'worldMap' | 'assetViewer' | 'boot';
+const SCENES: SceneName[] = ['gameplay', 'logo', 'title', 'worldMap', 'assetViewer', 'boot'];
 
 interface Query {
   scene: SceneName;

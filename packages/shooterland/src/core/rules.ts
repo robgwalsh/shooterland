@@ -48,6 +48,11 @@ export interface Rules {
   readonly roscoSpeedUpFactor: number;
   /** Survival levels (no enemies) are won after the level's time-to-beat (exe string). */
   readonly survivalLevels: boolean;
+  /**
+   * GAP:G9 - stars needed to enter each world (index = world number). 10 and 25
+   * come from tutorials 1-25 and 2-25; the rest are guesses.
+   */
+  readonly starThresholds: readonly number[];
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -79,4 +84,5 @@ export const DEFAULT_RULES: Rules = {
   roscoTripSeconds: 5,
   roscoSpeedUpFactor: 1.25,
   survivalLevels: true,
+  starThresholds: [0, 0, 10, 25, 40, 55, 70, 90],
 };

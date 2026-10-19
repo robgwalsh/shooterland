@@ -8,6 +8,7 @@ export * from './core/hash';
 export * from './core/level';
 export * from './core/rng';
 export * from './core/rules';
+export * from './core/save';
 export * from './core/sim';
 export * from './core/tiles';
 export * from './core/types';

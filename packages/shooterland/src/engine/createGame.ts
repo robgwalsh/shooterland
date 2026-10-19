@@ -1,39 +1,35 @@
 import { AssetLoader, type Assets } from '../assets/AssetLoader';
 import { TICK_SECONDS } from '../core/constants';
-import type { LevelData } from '../core/level/LevelData';
-import type { SessionEvent, SessionState } from '../core/sim/GameSession';
+import { DEFAULT_RULES, type Rules } from '../core/rules';
+import { SaveService } from '../core/save/SaveService';
+import { localStorageSaveStorage, type SaveStorage } from '../core/save/SaveStorage';
+import type { SessionState } from '../core/sim/GameSession';
 import { PointerInput } from '../input/PointerInput';
 import { createGLContext } from '../render/gl';
 import { Renderer } from '../render/Renderer';
 import { Viewport } from '../render/Viewport';
 import { AssetViewerScene } from '../scenes/AssetViewerScene';
 import { BootScene } from '../scenes/BootScene';
-import { GameplayScene } from '../scenes/GameplayScene';
 import { LoadingScene } from '../scenes/LoadingScene';
-import { ResultScene } from '../scenes/ResultScene';
 import { SceneManager } from '../scenes/Scene';
+import { type FlowEvent, GameFlow } from './GameFlow';
 
 export type GameEvent =
   | { readonly type: 'ready' }
   | { readonly type: 'error'; readonly error: Error }
   | { readonly type: 'paused' }
   | { readonly type: 'resumed' }
-  | { readonly type: 'levelStart'; readonly world: number; readonly level: number }
-  | {
-      readonly type: 'levelComplete';
-      readonly world: number;
-      readonly level: number;
-      readonly seconds: number;
-      readonly star: boolean;
-    }
-  | { readonly type: 'defeat'; readonly world: number; readonly level: number }
-  | { readonly type: 'session'; readonly events: readonly SessionEvent[] };
+  | FlowEvent;
 
 /**
- * Which scene to show once assets are loaded. 'boot' skips asset loading
- * entirely and shows the plumbing-test scene.
+ * Which screen to show once assets are loaded. The game normally starts at
+ * the studio logo; the others exist for development and tests. 'boot' skips
+ * asset loading entirely and shows the plumbing-test scene.
  */
 export type StartScene =
+  | 'logo'
+  | 'title'
+  | 'worldMap'
   | 'assetViewer'
   | 'boot'
   | {
@@ -47,12 +43,16 @@ export interface GameOptions {
   /** Base URL (with trailing slash) where the package's `assets/` directory is served. */
   assetBaseUrl?: string | undefined;
   startScene?: StartScene | undefined;
+  /** Where save files live. Defaults to browser localStorage. */
+  storage?: SaveStorage | undefined;
+  /** Gameplay constants; defaults to the reconstructed rules. */
+  rules?: Rules | undefined;
   /** Resize the canvas backing store to its CSS box automatically. Default true. */
   autoResize?: boolean | undefined;
   /** Upper bound on devicePixelRatio used for the backing store. Default 2. */
   maxPixelRatio?: number | undefined;
   muted?: boolean | undefined;
-  /** Seed for the deterministic simulation RNG. Default: time-based. */
+  /** Seed for the simulation RNG; each level advances it. Default: time-based. */
   seed?: number | undefined;
   onEvent?: ((event: GameEvent) => void) | undefined;
   /** Aborting cancels asset loading and destroys the game. */
@@ -62,6 +62,8 @@ export interface GameOptions {
 export interface GameDebug {
   /** The live simulation state of the current level, if a level is being played. */
   session(): SessionState | null;
+  /** Class name of the active scene. */
+  scene(): string;
 }
 
 export interface GameHandle {
@@ -94,6 +96,7 @@ export function defaultAssetBaseUrl(): string {
  */
 export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {}): GameHandle {
   const emit = (event: GameEvent): void => options.onEvent?.(event);
+  const rules = options.rules ?? DEFAULT_RULES;
 
   const viewport = new Viewport();
   const gl = createGLContext(canvas);
@@ -102,13 +105,14 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   const scenes = new SceneManager();
   const abort = new AbortController();
   let assets: Assets | null = null;
-  let gameplay: GameplayScene | null = null;
+  let flow: GameFlow | null = null;
 
   let destroyed = false;
   let paused = false;
   let rafId = 0;
   let last = 0;
   let accumulator = 0;
+  let seed = (options.seed ?? Date.now() & 0x7fffffff) >>> 0;
 
   const resize = (width: number, height: number): void => {
     const w = Math.max(1, Math.round(width));
@@ -153,54 +157,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     scenes.draw(renderer);
   };
 
-  /** Starts a level, chaining into the result screen and back. */
-  const startLevel = async (loaded: Assets, level: LevelData, seed: number): Promise<void> => {
-    const world = await loaded.world(level.world);
-    if (destroyed) return;
-    const scene = new GameplayScene({
-      assets: loaded,
-      world,
-      level,
-      seed,
-      onEvents: (events) => emit({ type: 'session', events }),
-      onFinish: ({ outcome, session }) => {
-        gameplay = null;
-        if (outcome === 'won') {
-          emit({
-            type: 'levelComplete',
-            world: level.world,
-            level: level.level,
-            seconds: session.seconds,
-            star: session.seconds <= level.timeToBeat,
-          });
-        } else {
-          emit({ type: 'defeat', world: level.world, level: level.level });
-        }
-        scenes.go(
-          new ResultScene({
-            assets: loaded,
-            world,
-            session,
-            outcome,
-            onContinue: (action) => {
-              const next =
-                action === 'next'
-                  ? (loaded.level(level.world, level.level + 1) ??
-                    loaded.level(level.world + 1, 1) ??
-                    level)
-                  : level;
-              void startLevel(loaded, next, seed + 1);
-            },
-          }),
-        );
-      },
-    });
-    gameplay = scene;
-    scenes.go(scene);
-    emit({ type: 'levelStart', world: level.world, level: level.level });
-  };
-
-  const startScene = options.startScene ?? 'assetViewer';
+  const startScene = options.startScene ?? 'logo';
   let ready: Promise<void>;
   if (startScene === 'boot') {
     scenes.go(new BootScene());
@@ -221,9 +178,31 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
           scenes.go(new AssetViewerScene(loaded));
           return;
         }
-        const level = loaded.level(startScene.world, startScene.level);
-        if (!level) throw new Error(`no level ${startScene.world}-${startScene.level}`);
-        await startLevel(loaded, level, startScene.seed ?? options.seed ?? Date.now() & 0x7fffffff);
+        const saves = new SaveService(
+          options.storage ?? localStorageSaveStorage(),
+          loaded.levels,
+          rules.starThresholds,
+        );
+        flow = new GameFlow(loaded, scenes, saves, {
+          rules,
+          nextSeed: () => {
+            seed = (seed + 0x9e3779b9) >>> 0;
+            return seed;
+          },
+          emit,
+          isDestroyed: () => destroyed,
+        });
+        if (startScene === 'logo') flow.logo();
+        else if (startScene === 'title') flow.title();
+        else if (startScene === 'worldMap') {
+          await saves.select(1);
+          flow.worldMap();
+        } else {
+          const level = loaded.level(startScene.world, startScene.level);
+          if (!level) throw new Error(`no level ${startScene.world}-${startScene.level}`);
+          await saves.select(1);
+          await flow.play(level, startScene.seed ?? seed);
+        }
       })
       .catch((error: unknown) => {
         if (destroyed) return;
@@ -281,7 +260,8 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     resize,
     destroy,
     debug: {
-      session: () => gameplay?.session ?? null,
+      session: () => flow?.gameplay?.session ?? null,
+      scene: () => scenes.currentName,
     },
   };
 }

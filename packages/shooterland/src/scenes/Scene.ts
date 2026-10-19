@@ -26,6 +26,11 @@ export class SceneManager implements SceneContext {
     this.next = next;
   }
 
+  /** Class name of the active scene, for tests and debugging. */
+  get currentName(): string {
+    return this.current?.constructor.name ?? 'none';
+  }
+
   /** Applies any pending transition, then updates the active scene. */
   update(dt: number, input: readonly InputEvent[]): void {
     if (this.next) {

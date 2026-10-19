@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { SaveStorage } from '../core/save/SaveStorage';
 import {
   createGame,
   type GameEvent,
@@ -20,6 +21,8 @@ export interface ShooterlandProps {
   assetBaseUrl?: string | undefined;
   /** Scene to show after loading. Defaults to the game's normal boot sequence. */
   startScene?: StartScene | undefined;
+  /** Where save files live. Defaults to browser localStorage. */
+  storage?: SaveStorage | undefined;
   muted?: boolean | undefined;
   /** Pause the simulation while the page is hidden. Default true. */
   pauseWhenHidden?: boolean | undefined;
@@ -59,6 +62,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
   {
     assetBaseUrl,
     startScene,
+    storage,
     muted,
     pauseWhenHidden = true,
     seed,
@@ -105,6 +109,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       destroy: () => handleRef.current?.destroy(),
       debug: {
         session: () => handleRef.current?.debug.session() ?? null,
+        scene: () => handleRef.current?.debug.scene() ?? 'unmounted',
       },
     }),
     [],
@@ -126,6 +131,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
     };
     if (assetBaseUrl !== undefined) options.assetBaseUrl = assetBaseUrl;
     if (startSceneRef.current !== undefined) options.startScene = startSceneRef.current;
+    if (storage !== undefined) options.storage = storage;
     if (seed !== undefined) options.seed = seed;
     if (muted !== undefined) options.muted = muted;
     try {
@@ -142,7 +148,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       controller.abort();
       handleRef.current = null;
     };
-  }, [assetBaseUrl, startSceneKey, seed, muted]);
+  }, [assetBaseUrl, startSceneKey, storage, seed, muted]);
 
   useEffect(() => {
     if (!pauseWhenHidden) return;

@@ -16,9 +16,14 @@ import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
 import {
   BUBBLE,
+  bombFrame,
   bottomShooterRect,
+  checkFrame,
+  enemyFrame,
   explosionFrame,
   itemRect,
+  letterRect,
+  MINE,
   PIGGY,
   ROSCO,
   rightShooterRect,
@@ -29,6 +34,7 @@ import {
 } from '../render/sprites';
 import { cellAt, cellX, cellY, inRect, LAYOUT } from './layout';
 import type { Scene, SceneContext } from './Scene';
+import { contains, drawButton, drawDim, drawPanel, rect } from './ui';
 
 export interface GameplayResult {
   readonly outcome: 'won' | 'lost';
@@ -43,7 +49,14 @@ export interface GameplayOptions {
   readonly rules?: Rules | undefined;
   readonly onFinish: (result: GameplayResult) => void;
   readonly onEvents?: ((events: readonly SessionEvent[]) => void) | undefined;
+  /** The player confirmed "quit" from the pause menu. */
+  readonly onQuit?: (() => void) | undefined;
 }
+
+const PAUSE_RESUME = rect(560, 430, 190, 36);
+const PAUSE_QUIT = rect(560, 480, 190, 36);
+const PAUSE_YES = rect(260, 460, 110, 34);
+const PAUSE_NO = rect(430, 460, 110, 34);
 
 interface Effect {
   kind: 'fire' | 'swirl';
@@ -100,6 +113,101 @@ export class GameplayScene implements Scene {
   private drag: ItemKind | null = null;
   private frameTicks = 0;
   private finished = false;
+  paused = false;
+  private quitPrompt = false;
+
+  /** P or Escape pauses; while paused the pause menu takes over the screen. */
+  private keyInput(key: string): void {
+    if (key === 'p' || key === 'P' || key === 'Escape') {
+      if (this.quitPrompt) this.quitPrompt = false;
+      else this.paused = !this.paused;
+    }
+  }
+
+  private pauseInput(e: InputEvent): void {
+    if (e.type !== 'down') return;
+    if (this.quitPrompt) {
+      if (contains(PAUSE_YES, e.x, e.y)) this.opts.onQuit?.();
+      else if (contains(PAUSE_NO, e.x, e.y)) this.quitPrompt = false;
+      return;
+    }
+    if (contains(PAUSE_RESUME, e.x, e.y)) this.paused = false;
+    else if (contains(PAUSE_QUIT, e.x, e.y)) this.quitPrompt = true;
+  }
+
+  /** Pause screen (tutorial 2-10): the letters plus the enemy/kill-method chart. */
+  private drawPause(renderer: Renderer): void {
+    const { assets, world, session } = this;
+    const font1 = assets.font('font1');
+    const font2 = assets.font('font2');
+    drawDim(renderer, 0.7);
+    const pause = assets.image('pause');
+    for (let i = 0; i < 5; i++) {
+      const r = letterRect(i, 80);
+      renderer.drawSprite(pause, r.x, r.y, r.w, r.h, 40, 90 + i * 84);
+    }
+    const chartX = 190;
+    const colX = [chartX + 110, chartX + 190, chartX + 270, chartX + 350];
+    const headY = 110;
+    renderer.drawText(font2, 'How to defeat them', chartX, 80);
+    const bomb = bombFrame(0);
+    renderer.drawSprite(world.tiles, bomb.x, bomb.y, bomb.w, bomb.h, colX[0] ?? 0, headY);
+    renderer.drawText(font2, 'Combo', (colX[1] ?? 0) + 20, headY + 12, { align: 'center' });
+    const w1 = itemRect(TileId.Weight1);
+    if (w1) renderer.drawSprite(assets.image('items'), w1.x, w1.y, w1.w, w1.h, colX[2] ?? 0, headY);
+    renderer.drawSprite(world.tiles, MINE.x, MINE.y, MINE.w, MINE.h, colX[3] ?? 0, headY);
+    const check = checkFrame(0);
+    const checks = assets.image('checkandstar');
+    ENEMY_KINDS.forEach((kind, i) => {
+      const y = headY + 60 + i * 56;
+      const e = enemyFrame(kind, 0);
+      renderer.drawSprite(world.tiles, e.x, e.y, e.w, e.h, chartX, y);
+      renderer.drawText(font2, ENEMY_LABEL[kind], chartX + 46, y + 12);
+      const rule = session.rules.enemies[kind];
+      const cells: (boolean | string)[] = [
+        rule.bomb,
+        rule.comboMin === null ? false : `${rule.comboMin}+`,
+        rule.weight,
+        rule.mine,
+      ];
+      cells.forEach((v, c) => {
+        const x = colX[c] ?? 0;
+        if (typeof v === 'string') {
+          renderer.drawText(font1, v, x + 20, y + 4, { align: 'center', r: 1, g: 0.9, b: 0.4 });
+        } else if (v) {
+          renderer.drawSprite(checks, check.x, check.y, check.w, check.h, x + 4, y + 10, 32, 20);
+        }
+      });
+    });
+    if (this.quitPrompt) {
+      drawPanel(renderer, rect(230, 400, 340, 110));
+      renderer.drawText(font2, 'Are you sure you', 400, 412, { align: 'center' });
+      renderer.drawText(font2, 'wish to quit?', 400, 432, { align: 'center' });
+      drawButton(
+        renderer,
+        font2,
+        PAUSE_YES,
+        'Yes',
+        contains(PAUSE_YES, this.pointerX, this.pointerY),
+      );
+      drawButton(renderer, font2, PAUSE_NO, 'No', contains(PAUSE_NO, this.pointerX, this.pointerY));
+    } else {
+      drawButton(
+        renderer,
+        font2,
+        PAUSE_RESUME,
+        'Resume',
+        contains(PAUSE_RESUME, this.pointerX, this.pointerY),
+      );
+      drawButton(
+        renderer,
+        font2,
+        PAUSE_QUIT,
+        'Quit level',
+        contains(PAUSE_QUIT, this.pointerX, this.pointerY),
+      );
+    }
+  }
 
   constructor(private readonly opts: GameplayOptions) {
     this.assets = opts.assets;
@@ -111,6 +219,10 @@ export class GameplayScene implements Scene {
 
   update(_dt: number, input: readonly InputEvent[]): void {
     this.handleInput(input);
+    if (this.paused) {
+      this.pending = [];
+      return;
+    }
     const commands = this.pending;
     this.pending = [];
     const events = this.session.tick(commands);
@@ -135,8 +247,16 @@ export class GameplayScene implements Scene {
   private handleInput(input: readonly InputEvent[]): void {
     const { session } = this;
     for (const e of input) {
+      if (e.type === 'key') {
+        this.keyInput(e.key);
+        continue;
+      }
       this.pointerX = e.x;
       this.pointerY = e.y;
+      if (this.paused) {
+        this.pauseInput(e);
+        continue;
+      }
       const cell = cellAt(e.x, e.y);
       if (session.storeOpen) {
         this.storeInput(e);
@@ -327,6 +447,7 @@ export class GameplayScene implements Scene {
 
     this.drawHud(renderer, thingieFrame);
     if (session.storeOpen) this.drawStore(renderer);
+    if (this.paused) this.drawPause(renderer);
     renderer.end();
   }
 
