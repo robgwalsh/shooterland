@@ -204,6 +204,63 @@ describe('GameSession', () => {
     expect(events.at(-1)).toEqual({ t: 'defeated', reason: 'rosco' });
   });
 
+  it('a weight pushes a block into a crony, crushes it and stays on the board', () => {
+    const s = new GameSession(
+      level([
+        [0, 0, TileId.Crony],
+        [1, 0, TileId.GreyBlock],
+        [0, 1, TileId.GreyBlock],
+        [8, 8, TileId.Crazy],
+      ]),
+      1,
+      NO_BOMBS,
+    );
+    s.shooters.right.loaded = TileId.Weight1;
+    s.shooters.bottom.loaded = TileId.Thingie1;
+    const events = run(s, [{ t: 'aim', col: 6, row: 0 }, { t: 'fire' }]);
+    expect(events.some((e) => e.t === 'enemyKilled' && e.by === 'weight')).toBe(true);
+    expect(s.grid.get(2, 0)).toBe(TileId.SpentWeight);
+    expect(s.grid.get(1, 0)).toBe(TileId.GreyBlock);
+    expect(s.enemies.crony).toBe(0);
+  });
+
+  it('a mine goes off when a shot touches it and kills the enemies around it', () => {
+    const s = new GameSession(
+      level([
+        [4, 4, TileId.Mine],
+        [5, 3, TileId.Skully],
+        [3, 5, TileId.Crony],
+        [0, 0, TileId.GreyBlock],
+      ]),
+      1,
+      NO_BOMBS,
+    );
+    s.shooters.bottom.loaded = TileId.Thingie2;
+    s.shooters.right.loaded = TileId.Thingie2;
+    const events = run(s, [{ t: 'aim', col: 4, row: 0 }, { t: 'fire' }]);
+    expect(events.some((e) => e.t === 'mine')).toBe(true);
+    expect(s.grid.get(4, 4)).toBe(TileId.Empty);
+    expect(s.enemies.skully).toBe(0);
+    expect(s.enemies.crony).toBe(0);
+    expect(s.status).toBe('won');
+  });
+
+  it('shooters change size at random up to the level size after each volley', () => {
+    const s = new GameSession(
+      level([[8, 8, TileId.Crazy]], { bottomShooterSize: 3, rightShooterSize: 1 }),
+      5,
+      NO_BOMBS,
+    );
+    const sizes = new Set<number>();
+    for (let i = 0; i < 12; i++) {
+      run(s, [{ t: 'aim', col: i % 10, row: 1 + (i % 10) }, { t: 'fire' }]);
+      sizes.add(s.shooters.bottom.size);
+      expect(s.shooters.bottom.lane + s.shooters.bottom.size).toBeLessThanOrEqual(GRID_SIZE);
+      expect(s.shooters.right.size).toBe(1);
+    }
+    expect(sizes.size).toBeGreaterThan(1);
+  });
+
   it('is deterministic: same seed and commands give the same hash', () => {
     const text = readFileSync(join(LEVELS_DIR, 'Level1-1.sll'), 'latin1');
     const data = parseSll(text, { world: 1, level: 1, timeToBeat: 15 });

@@ -26,6 +26,8 @@ export type StepResult =
   | { readonly type: 'land'; readonly at: GridPos }
   /** Reached an obstacle it reacts to (bomb, weight): `target` is the obstacle cell. */
   | { readonly type: 'impact'; readonly at: GridPos; readonly target: GridPos }
+  /** Touched a land mine: any shot sets it off. */
+  | { readonly type: 'mine'; readonly at: GridPos; readonly target: GridPos }
   /** Would leave the grid or has nowhere to stop; the shot is gone. */
   | { readonly type: 'lost' };
 
@@ -95,6 +97,8 @@ export function stepProjectile(grid: Grid, p: Projectile): StepResult {
       return { type: 'deflected', ramp: { col: nc, row: nr } };
     }
   }
+
+  if (next === TileId.Mine) return { type: 'mine', at: here, target: { col: nc, row: nr } };
 
   // Blocked by whatever is in the next cell.
   if (reactsToObstacle(p.ammo)) {

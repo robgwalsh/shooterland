@@ -4,7 +4,14 @@ import type { LevelData } from '../core/level/LevelData';
 import type { Rules } from '../core/rules';
 import { type Command, GameSession, type SessionEvent } from '../core/sim/GameSession';
 import { DIR_DELTA } from '../core/tiles';
-import { ENEMY_KINDS, type EnemyKind, type GridPos, type ItemKind, TileId } from '../core/types';
+import {
+  ENEMY_KINDS,
+  type EnemyKind,
+  type GridPos,
+  type ItemKind,
+  type ShooterSide,
+  TileId,
+} from '../core/types';
 import type { InputEvent } from '../input/PointerInput';
 import type { Renderer } from '../render/Renderer';
 import {
@@ -62,6 +69,18 @@ const STORE_ITEMS: readonly ItemKind[] = [
   TileId.RampBottomLeft,
   TileId.RampBottomRight,
 ];
+const ITEM_NAME: Record<ItemKind, string> = {
+  [TileId.Weight1]: '1-weight',
+  [TileId.Weight2]: '2-weight',
+  [TileId.Weight3]: '3-weight',
+  [TileId.RampTopLeft]: 'ramp',
+  [TileId.RampTopRight]: 'ramp',
+  [TileId.RampBottomLeft]: 'ramp',
+  [TileId.RampBottomRight]: 'ramp',
+};
+const STORE_HEADER = 30;
+const STORE_ROW = 44;
+const BUBBLE_PX = 62;
 
 /**
  * One level of play. Translates pointer input into simulation commands,
@@ -75,6 +94,10 @@ export class GameplayScene implements Scene {
   private readonly effects: Effect[] = [];
   private pending: Command[] = [];
   private pointer: GridPos | null = null;
+  private pointerX = -1;
+  private pointerY = -1;
+  /** Store item being dragged toward a shooter bubble. */
+  private drag: ItemKind | null = null;
   private frameTicks = 0;
   private finished = false;
 
@@ -112,18 +135,18 @@ export class GameplayScene implements Scene {
   private handleInput(input: readonly InputEvent[]): void {
     const { session } = this;
     for (const e of input) {
+      this.pointerX = e.x;
+      this.pointerY = e.y;
       const cell = cellAt(e.x, e.y);
-      if (e.type === 'move' || e.type === 'down') {
-        if (cell) {
-          this.pointer = cell;
-          this.pending.push({ t: 'aim', col: cell.col, row: cell.row });
-        }
-      }
-      if (e.type !== 'down') continue;
       if (session.storeOpen) {
-        this.clickStore(e.x, e.y);
+        this.storeInput(e);
         continue;
       }
+      if ((e.type === 'move' || e.type === 'down') && cell) {
+        this.pointer = cell;
+        this.pending.push({ t: 'aim', col: cell.col, row: cell.row });
+      }
+      if (e.type !== 'down') continue;
       if (cell) {
         this.pending.push({ t: 'fire' });
       } else if (inRect(e.x, e.y, LAYOUT.hud.storeButton, LAYOUT.hud.x, 0)) {
@@ -132,18 +155,34 @@ export class GameplayScene implements Scene {
     }
   }
 
-  /** Phase-3 store: a list over the HUD; left half of a row buys for Mary, right half for Poindexter. */
-  private clickStore(x: number, y: number): void {
-    const panel = this.storePanel();
-    if (!inRect(x, y, panel)) {
-      this.pending.push({ t: 'closeStore' });
+  /**
+   * Store (tutorial 1-11): press an item, drag it onto Mary's red bubble or
+   * Poindexter's blue bubble and release to buy it into that shooter.
+   * Clicking outside the panel closes the store.
+   */
+  private storeInput(e: InputEvent): void {
+    if (e.type === 'down') {
+      const item = this.storeItemAt(e.x, e.y);
+      if (item !== null) {
+        const cost = this.session.rules.prices[item] ?? 0;
+        if (this.session.money >= cost) this.drag = item;
+        return;
+      }
+      if (!inRect(e.x, e.y, this.storePanel())) this.pending.push({ t: 'closeStore' });
       return;
     }
-    const index = Math.floor((y - panel.y - 30) / 44);
-    const item = STORE_ITEMS[index];
-    if (item === undefined) return;
-    const shooter = x < panel.x + panel.w / 2 ? 'bottom' : 'right';
-    this.pending.push({ t: 'buy', item, shooter });
+    if (e.type === 'up' && this.drag !== null) {
+      const shooter = this.bubbleAt(e.x, e.y);
+      if (shooter) this.pending.push({ t: 'buy', item: this.drag, shooter });
+      this.drag = null;
+    }
+  }
+
+  private storeItemAt(x: number, y: number): ItemKind | null {
+    const panel = this.storePanel();
+    if (!inRect(x, y, panel)) return null;
+    const index = Math.floor((y - panel.y - STORE_HEADER) / STORE_ROW);
+    return STORE_ITEMS[index] ?? null;
   }
 
   private storePanel(): { x: number; y: number; w: number; h: number } {
@@ -151,8 +190,36 @@ export class GameplayScene implements Scene {
       x: LAYOUT.hud.x + 8,
       y: 60,
       w: LAYOUT.hud.width - 16,
-      h: 30 + STORE_ITEMS.length * 44 + 8,
+      h: STORE_HEADER + STORE_ITEMS.length * STORE_ROW + 8,
     };
+  }
+
+  /** The 62px bubbles drawn over each shooter while the store is open. */
+  private bubbleRect(side: ShooterSide): { x: number; y: number; w: number; h: number } {
+    const s = this.session.shooters[side];
+    const half = BUBBLE_PX / 2;
+    if (side === 'bottom') {
+      const cx = cellX(s.lane) + (TILE_PX * s.size) / 2;
+      return {
+        x: cx - half,
+        y: LAYOUT.bottomShooterY + TILE_PX / 2 - half,
+        w: BUBBLE_PX,
+        h: BUBBLE_PX,
+      };
+    }
+    const cy = cellY(s.lane) + (TILE_PX * s.size) / 2;
+    return {
+      x: LAYOUT.rightShooterX + TILE_PX / 2 - half,
+      y: cy - half,
+      w: BUBBLE_PX,
+      h: BUBBLE_PX,
+    };
+  }
+
+  private bubbleAt(x: number, y: number): ShooterSide | null {
+    if (inRect(x, y, this.bubbleRect('bottom'))) return 'bottom';
+    if (inRect(x, y, this.bubbleRect('right'))) return 'right';
+    return null;
   }
 
   private onEvent(e: SessionEvent): void {
@@ -166,6 +233,11 @@ export class GameplayScene implements Scene {
         break;
       case 'enemyKilled':
         this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
+        break;
+      case 'mine':
+        this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
+        for (const c of e.cleared)
+          this.effects.push({ kind: 'swirl', col: c.col, row: c.row, frame: 0 });
         break;
       default:
         break;
@@ -344,22 +416,63 @@ export class GameplayScene implements Scene {
     const { session, assets } = this;
     const font2 = assets.font('font2');
     const items = assets.image('items');
+    const bubbles = assets.image('bubbles');
     const panel = this.storePanel();
     renderer.drawRect(panel.x, panel.y, panel.w, panel.h, 0.08, 0.06, 0.04, 0.92);
-    renderer.drawText(font2, 'Store   Mary | Poindexter', panel.x + 8, panel.y + 8);
+    renderer.drawText(font2, 'Drag onto a shooter', panel.x + 8, panel.y + 8);
     STORE_ITEMS.forEach((item, i) => {
-      const y = panel.y + 30 + i * 44;
+      const y = panel.y + STORE_HEADER + i * STORE_ROW;
       const r = itemRect(item);
       if (r) renderer.drawSprite(items, r.x, r.y, r.w, r.h, panel.x + 8, y);
       const cost = session.rules.prices[item] ?? 0;
       const affordable = session.money >= cost;
-      renderer.drawText(font2, `$${cost}`, panel.x + 56, y + 12, {
+      renderer.drawText(font2, `$${cost}  ${ITEM_NAME[item]}`, panel.x + 56, y + 12, {
         r: affordable ? 0.6 : 0.9,
         g: affordable ? 1 : 0.4,
         b: 0.5,
       });
-      renderer.drawRect(panel.x + panel.w / 2, y, 1, 40, 1, 1, 1, 0.2);
     });
+
+    // Drop targets: Mary's red bubble, Poindexter's blue bubble, lit while hovered.
+    const hover = this.drag !== null ? this.bubbleAt(this.pointerX, this.pointerY) : null;
+    for (const side of ['bottom', 'right'] as const) {
+      const b = this.bubbleRect(side);
+      const sprite =
+        side === 'bottom'
+          ? hover === side
+            ? BUBBLE.redLit
+            : BUBBLE.red
+          : hover === side
+            ? BUBBLE.blueLit
+            : BUBBLE.blue;
+      renderer.drawSprite(
+        bubbles,
+        sprite.x,
+        sprite.y,
+        sprite.w,
+        sprite.h,
+        b.x,
+        b.y,
+        b.w,
+        b.h,
+        0.85,
+      );
+    }
+
+    if (this.drag !== null) {
+      const r = itemRect(this.drag);
+      if (r) {
+        renderer.drawSprite(
+          items,
+          r.x,
+          r.y,
+          r.w,
+          r.h,
+          this.pointerX - TILE_PX / 2,
+          this.pointerY - TILE_PX / 2,
+        );
+      }
+    }
   }
 
   /** Expose the pointer's cell for debugging overlays. */

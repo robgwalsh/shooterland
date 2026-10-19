@@ -24,6 +24,7 @@ import {
 import { findCombos } from './match';
 import { muzzleCell, type Projectile, spawnProjectile, stepProjectile } from './projectile';
 import { Rosco } from './rosco';
+import { applyWeight } from './weight';
 
 export type Command =
   | { readonly t: 'aim'; readonly col: number; readonly row: number }
@@ -49,6 +50,14 @@ export type SessionEvent =
   | { readonly t: 'deflected'; readonly at: GridPos }
   | { readonly t: 'bomb'; readonly at: GridPos; readonly destroyed: number }
   | { readonly t: 'lost'; readonly shooter: ShooterSide; readonly ammo: number }
+  | {
+      readonly t: 'weightPushed';
+      readonly from: GridPos;
+      readonly to: GridPos;
+      readonly distance: number;
+    }
+  | { readonly t: 'mine'; readonly at: GridPos; readonly cleared: readonly GridPos[] }
+  | { readonly t: 'shooterResized'; readonly shooter: ShooterSide; readonly size: number }
   | {
       readonly t: 'combo';
       readonly kind: number;
@@ -317,6 +326,9 @@ export class GameSession implements SessionState {
       case 'impact':
         this.impact(p, r.at, r.target, events);
         return true;
+      case 'mine':
+        this.detonateMine(r.target, events);
+        return true;
       case 'lost':
         events.push({ t: 'lost', shooter: p.shooter, ammo: p.ammo });
         return true;
@@ -346,20 +358,50 @@ export class GameSession implements SessionState {
       this.explodeBomb(target, events);
       return;
     }
-    // Weights: full push/crush arrives in phase 5. For now a weight crushes one
-    // adjacent enemy if its rule allows and then settles where it stopped.
-    const size = weightSize(p.ammo);
-    const id = this.grid.get(target.col, target.row);
-    const kind = enemyKind(id);
-    if (kind && this.rules.enemies[kind].weight && size >= 1) {
-      this.killEnemy(target, kind, 'weight', events);
-    }
-    if (Grid.inBounds(at.col, at.row) && this.grid.isEmpty(at.col, at.row)) {
-      this.grid.set(at.col, at.row, TileId.SpentWeight);
-      events.push({ t: 'landed', shooter: p.shooter, ammo: p.ammo, at });
-    } else {
+    if (!Grid.inBounds(at.col, at.row)) {
       events.push({ t: 'lost', shooter: p.shooter, ammo: p.ammo });
+      return;
     }
+    const size = weightSize(p.ammo);
+    const result = applyWeight(this.grid, at, p.dir, size, this.rules.enemies);
+    if (result.pushedDistance > 0) {
+      events.push({
+        t: 'weightPushed',
+        from: at,
+        to: result.restAt,
+        distance: result.pushedDistance,
+      });
+    }
+    for (const c of result.crushed) this.killEnemy(c.pos, c.kind, 'weight', events);
+    for (const moved of result.movedThingies) this.volley?.push(moved);
+    this.grid.set(result.restAt.col, result.restAt.row, TileId.SpentWeight);
+    events.push({ t: 'landed', shooter: p.shooter, ammo: p.ammo, at: result.restAt });
+  }
+
+  /**
+   * GAP:G10 - a land mine goes off when any shot touches it: it clears the
+   * mine and the thingies, brown blocks and spent weights around it, and
+   * kills every adjacent enemy whose rule lists mines.
+   */
+  private detonateMine(target: GridPos, events: SessionEvent[]): void {
+    this.grid.set(target.col, target.row, TileId.Empty);
+    const cleared: GridPos[] = [];
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const col = target.col + dc;
+        const row = target.row + dr;
+        if (!Grid.inBounds(col, row)) continue;
+        const id = this.grid.get(col, row);
+        const kind = enemyKind(id);
+        if (kind) {
+          if (this.rules.enemies[kind].mine) this.killEnemy({ col, row }, kind, 'mine', events);
+        } else if (isThingie(id) || id === TileId.BrownBlock || id === TileId.SpentWeight) {
+          this.grid.set(col, row, TileId.Empty);
+          cleared.push({ col, row });
+        }
+      }
+    }
+    events.push({ t: 'mine', at: target, cleared });
   }
 
   /** A bowling bomb destroys what it hits unless that thing resists explosives. */
@@ -424,6 +466,16 @@ export class GameSession implements SessionState {
     for (const s of [this.shooters.bottom, this.shooters.right]) {
       s.loaded = s.next;
       s.next = this.drawAmmo();
+      // GAP:G7 - the "flu": shooters change size at random, up to the level's size.
+      const max = s.side === 'bottom' ? this.level.bottomShooterSize : this.level.rightShooterSize;
+      if (max > 1) {
+        const size = 1 + this.rng.int(max);
+        if (size !== s.size) {
+          s.size = size;
+          s.lane = this.clampLane(s, s.lane);
+          events.push({ t: 'shooterResized', shooter: s.side, size });
+        }
+      }
     }
     events.push({ t: 'reloaded' });
   }
