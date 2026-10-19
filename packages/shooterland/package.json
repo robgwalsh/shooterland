@@ -1,6 +1,6 @@
 {
   "name": "shooterland",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Shooterland, the 2006 puzzle game, rebuilt in TypeScript with WebGL rendering and a React component.",
   "license": "MIT",
   "repository": {
