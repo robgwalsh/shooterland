@@ -10,7 +10,7 @@ test('title -> file select -> world map -> play -> pause -> quit back to the map
   // Fresh saves for every run.
   await page.addInitScript(() => localStorage.clear());
 
-  await page.goto('/?scene=title');
+  await page.goto('/?audio=none&scene=title');
   const canvas = page.locator('canvas');
   await expect(page.getByText('ready')).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => scene(page)).toBe('TitleScene');

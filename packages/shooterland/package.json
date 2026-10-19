@@ -71,5 +71,8 @@
     "webgl",
     "react",
     "shooterland"
-  ]
+  ],
+  "dependencies": {
+    "spessasynth_lib": "4.3.14"
+  }
 }

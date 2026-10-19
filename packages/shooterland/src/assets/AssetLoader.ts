@@ -79,6 +79,11 @@ export class AssetLoader {
     private readonly signal?: AbortSignal,
   ) {}
 
+  /** Resolves a manifest path against the base URL. */
+  resolve(path: string): string {
+    return this.url(path);
+  }
+
   private url(path: string): string {
     // Relative bases ("/assets/", "./assets/") resolve against the page; absolute ones stand alone.
     const pageHref = typeof location !== 'undefined' ? location.href : undefined;

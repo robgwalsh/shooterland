@@ -7,7 +7,7 @@ test('loads the generated assets and renders the asset viewer', async ({ page })
   });
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/?scene=assetViewer');
+  await page.goto('/?audio=none&scene=assetViewer');
   await expect(page.locator('canvas')).toBeVisible();
   // 'ready' is logged once every sheet, font and level file has loaded.
   await expect(page.getByText('ready')).toBeVisible({ timeout: 20_000 });

@@ -1,4 +1,5 @@
 import type { Assets } from '../assets/AssetLoader';
+import type { GameAudio } from '../audio/AudioEngine';
 import type { LevelData } from '../core/level/LevelData';
 import type { Rules } from '../core/rules';
 import { bestTime, lastLevelOfWorld, type SlotNumber, worldExists } from '../core/save/SaveData';
@@ -47,15 +48,18 @@ export class GameFlow {
     private readonly assets: Assets,
     private readonly scenes: SceneManager,
     private readonly saves: SaveService,
+    private readonly audio: GameAudio,
     private readonly opts: FlowOptions,
   ) {}
 
   logo(): void {
+    this.audio.music('titlescreen');
     this.scenes.go(new LogoScene(this.assets, () => this.title()));
   }
 
   title(): void {
     this.gameplay = null;
+    this.audio.music('titlescreen');
     this.scenes.go(
       new TitleScene(this.assets, {
         onStart: () => this.saveSelect(),
@@ -82,6 +86,7 @@ export class GameFlow {
 
   worldMap(at?: { world: number; level: number }): void {
     this.gameplay = null;
+    this.audio.music('maptheme');
     this.scenes.go(
       new WorldMapScene(
         this.assets,
@@ -115,12 +120,14 @@ export class GameFlow {
     const world = await this.assets.world(level.world);
     if (this.opts.isDestroyed()) return;
     const previousBest = bestTime(this.saves.data, level.world, level.level);
+    this.audio.music(`world${Math.min(7, Math.max(1, level.world))}`);
     const scene = new GameplayScene({
       assets: this.assets,
       world,
       level,
       seed,
       rules: this.opts.rules,
+      audio: this.audio,
       onEvents: (events) => this.opts.emit({ type: 'session', events }),
       onQuit: () => this.worldMap({ world: level.world, level: level.level }),
       onFinish: ({ outcome, session }) => {

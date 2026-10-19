@@ -1,9 +1,14 @@
-import { copyFileSync, mkdirSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const VENDOR = join(dirname(fileURLToPath(import.meta.url)), '../vendor');
 
 export interface AudioOutput {
   sounds: Record<string, string>;
   music: Record<string, string>;
+  soundfont: string;
+  synthWorker: string;
 }
 
 /**
@@ -11,6 +16,8 @@ export interface AudioOutput {
  * and MIDI files are copied for in-browser synthesis. Names are lowercased.
  * `maptheme.mid` and `world7.mid` are byte-identical to `titlescreen.mid` and
  * `world6.mid` but keep their own entries so the music table reads naturally.
+ * The General MIDI sound bank (GeneralUser GS by S. Christian Collins, SF3
+ * build from the SpessaSynth project) ships from vendor/ with its licence.
  */
 export function convertAudio(
   legacyDir: string,
@@ -38,5 +45,20 @@ export function convertAudio(
       log(rel);
     }
   }
-  return { sounds, music };
+
+  const soundfont = 'music/GeneralUserGS.sf3';
+  copyFileSync(join(VENDOR, 'GeneralUserGS.sf3'), join(outDir, soundfont));
+  copyFileSync(
+    join(VENDOR, 'GeneralUserGS-LICENSE.txt'),
+    join(outDir, 'music/GeneralUserGS-LICENSE.txt'),
+  );
+  log(`${soundfont} (+ licence)`);
+
+  // The synth worker is built by the package (tsdown) into assets/music; the
+  // pipeline only carries it across regenerations.
+  const synthWorker = 'music/synth-worker.js';
+  if (!existsSync(join(outDir, synthWorker))) {
+    log(`${synthWorker} missing: run the package build to generate it`);
+  }
+  return { sounds, music, soundfont, synthWorker };
 }

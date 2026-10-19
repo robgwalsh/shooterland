@@ -150,6 +150,8 @@
     "world6": "music/world6.mid",
     "world7": "music/world7.mid"
   },
+  "soundfont": "music/GeneralUserGS.sf3",
+  "synthWorker": "music/synth-worker.js",
   "worlds": {
     "1": {
       "tiles": "worlds/1/tiles.png",

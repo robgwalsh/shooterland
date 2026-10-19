@@ -4,7 +4,7 @@ test('store: dragging a weight onto Mary loads it and charges its price', async 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/?level=1-11&seed=3');
+  await page.goto('/?audio=none&level=1-11&seed=3');
   const canvas = page.locator('canvas');
   await expect(page.getByText('levelStart 1-11')).toBeVisible({ timeout: 20_000 });
   const box = await canvas.boundingBox();

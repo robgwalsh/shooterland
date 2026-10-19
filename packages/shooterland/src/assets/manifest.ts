@@ -38,6 +38,9 @@ export interface AssetManifest {
   readonly fonts: Readonly<Record<string, FontEntry>>;
   readonly sounds: Readonly<Record<string, string>>;
   readonly music: Readonly<Record<string, string>>;
+  /** General MIDI sound bank (SF2/SF3) used to synthesise the music, and the synth worker script. */
+  readonly soundfont: string;
+  readonly synthWorker: string;
   readonly worlds: Readonly<Record<string, WorldEntry>>;
   readonly levels: string;
   readonly times: string;

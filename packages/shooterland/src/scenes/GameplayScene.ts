@@ -1,9 +1,10 @@
 import type { Assets, WorldAssets } from '../assets/AssetLoader';
+import type { GameAudio } from '../audio/AudioEngine';
 import { TILE_PX, VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/constants';
 import type { LevelData } from '../core/level/LevelData';
 import type { Rules } from '../core/rules';
 import { type Command, GameSession, type SessionEvent } from '../core/sim/GameSession';
-import { DIR_DELTA } from '../core/tiles';
+import { DIR_DELTA, isThingie } from '../core/tiles';
 import {
   ENEMY_KINDS,
   type EnemyKind,
@@ -47,6 +48,7 @@ export interface GameplayOptions {
   readonly level: LevelData;
   readonly seed: number;
   readonly rules?: Rules | undefined;
+  readonly audio?: GameAudio | undefined;
   readonly onFinish: (result: GameplayResult) => void;
   readonly onEvents?: ((events: readonly SessionEvent[]) => void) | undefined;
   /** The player confirmed "quit" from the pause menu. */
@@ -343,18 +345,32 @@ export class GameplayScene implements Scene {
   }
 
   private onEvent(e: SessionEvent): void {
+    const audio = this.opts.audio;
     switch (e.t) {
+      case 'fired':
+        audio?.sfx('shoot');
+        break;
+      case 'landed':
+        if (isThingie(e.ammo)) audio?.sfx('thingyhit');
+        break;
+      case 'bought':
+        audio?.sfx('pop');
+        break;
       case 'bomb':
+        audio?.sfx('bomb');
         this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
         break;
       case 'combo':
+        audio?.sfx('combo');
         for (const c of e.cells)
           this.effects.push({ kind: 'swirl', col: c.col, row: c.row, frame: 0 });
         break;
       case 'enemyKilled':
+        audio?.sfx('pop');
         this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
         break;
       case 'mine':
+        audio?.sfx('bomb');
         this.effects.push({ kind: 'fire', col: e.at.col, row: e.at.row, frame: 0 });
         for (const c of e.cleared)
           this.effects.push({ kind: 'swirl', col: c.col, row: c.row, frame: 0 });

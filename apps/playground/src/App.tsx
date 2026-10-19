@@ -17,6 +17,7 @@ interface Query {
   view: 'game' | 'sheets';
   level: string;
   seed: number;
+  audio: 'webaudio' | 'none';
 }
 
 function readQuery(): Query {
@@ -27,6 +28,7 @@ function readQuery(): Query {
     view: q.get('view') === 'sheets' ? 'sheets' : 'game',
     level: /^\d+-\d+$/.test(q.get('level') ?? '') ? (q.get('level') as string) : '1-1',
     seed: Number.parseInt(q.get('seed') ?? '1', 10) || 1,
+    audio: q.get('audio') === 'none' ? 'none' : 'webaudio',
   };
 }
 
@@ -48,6 +50,7 @@ export function App() {
   const [size, setSize] = useState<number | undefined>(800);
   const [mounted, setMounted] = useState(true);
   const [log, setLog] = useState<string[]>([]);
+  const [muted, setMuted] = useState(false);
   const [levelDraft, setLevelDraft] = useState(query.level);
 
   useEffect(() => {
@@ -56,6 +59,7 @@ export function App() {
     if (query.view !== 'game') q.set('view', query.view);
     if (query.level !== '1-1') q.set('level', query.level);
     if (query.seed !== 1) q.set('seed', String(query.seed));
+    if (query.audio === 'none') q.set('audio', 'none');
     const qs = q.toString();
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }, [query]);
@@ -116,6 +120,10 @@ export function App() {
         <button type="button" onClick={() => setMounted((m) => !m)}>
           {mounted ? 'Unmount' : 'Mount'}
         </button>
+        <label>
+          <input type="checkbox" checked={muted} onChange={(e) => setMuted(e.target.checked)} />{' '}
+          Mute
+        </label>
         <button type="button" onClick={() => handle.current?.pause()}>
           Pause
         </button>
@@ -134,6 +142,8 @@ export function App() {
           }}
           assetBaseUrl="/assets/"
           startScene={startScene}
+          audio={query.audio}
+          muted={muted}
           style={size ? { width: size } : undefined}
           onEvent={(e) => {
             if (e.type === 'session') return;

@@ -4,7 +4,7 @@
  *
  *   tsx src/index.ts --legacy ../../legacy --out ../../packages/shooterland/assets
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { AssetManifest } from '../../../packages/shooterland/src/assets/manifest';
@@ -35,8 +35,12 @@ for (const sub of ['graphics', 'fonts', 'levels', 'sounds']) {
 }
 const log = values.quiet ? () => {} : (s: string) => console.log(`  ${s}`);
 
+// The synth worker is produced by the package build, not by this pipeline: carry it across.
+const workerPath = join(outDir, 'music/synth-worker.js');
+const keptWorker = existsSync(workerPath) ? readFileSync(workerPath) : null;
 rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+mkdirSync(join(outDir, 'music'), { recursive: true });
+if (keptWorker) writeFileSync(workerPath, keptWorker);
 
 console.log('sprites');
 const sheets = convertSheets(legacyDir, outDir, log);
@@ -58,6 +62,8 @@ const manifest: AssetManifest = {
   fonts: Object.fromEntries(fonts.map((f) => [f.key, { image: f.image, metrics: f.metrics }])),
   sounds: audio.sounds,
   music: audio.music,
+  soundfont: audio.soundfont,
+  synthWorker: audio.synthWorker,
   worlds: Object.fromEntries(
     worlds.map((w) => [
       String(w.world),

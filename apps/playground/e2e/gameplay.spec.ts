@@ -7,7 +7,7 @@ test('plays level 1-1: aiming and clicking fires both shooters', async ({ page }
   });
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/?level=1-1&seed=1');
+  await page.goto('/?audio=none&level=1-1&seed=1');
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible();
   await expect(page.getByText('levelStart 1-1')).toBeVisible({ timeout: 20_000 });

@@ -1,4 +1,5 @@
 import { AssetLoader, type Assets } from '../assets/AssetLoader';
+import { type GameAudio, NullAudio, WebAudioEngine } from '../audio/AudioEngine';
 import { TICK_SECONDS } from '../core/constants';
 import { DEFAULT_RULES, type Rules } from '../core/rules';
 import { SaveService } from '../core/save/SaveService';
@@ -47,6 +48,10 @@ export interface GameOptions {
   storage?: SaveStorage | undefined;
   /** Gameplay constants; defaults to the reconstructed rules. */
   rules?: Rules | undefined;
+  /** 'webaudio' (default) plays sound effects and synthesised MIDI music; 'none' is silent. */
+  audio?: 'webaudio' | 'none' | undefined;
+  /** Master volume 0..1. Default 1. */
+  volume?: number | undefined;
   /** Resize the canvas backing store to its CSS box automatically. Default true. */
   autoResize?: boolean | undefined;
   /** Upper bound on devicePixelRatio used for the backing store. Default 2. */
@@ -74,6 +79,7 @@ export interface GameHandle {
   resume(): void;
   readonly paused: boolean;
   setMuted(muted: boolean): void;
+  setVolume(volume: number): void;
   /** Sets the canvas backing-store size in device pixels. Only needed when `autoResize` is false. */
   resize(width: number, height: number): void;
   destroy(): void;
@@ -106,6 +112,11 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   const abort = new AbortController();
   let assets: Assets | null = null;
   let flow: GameFlow | null = null;
+  let audio: GameAudio = new NullAudio();
+  // Autoplay policies require the AudioContext to be created inside a gesture.
+  const unlockAudio = (): void => audio.unlock();
+  canvas.addEventListener('pointerdown', unlockAudio, { signal: abort.signal });
+  canvas.addEventListener('keydown', unlockAudio, { signal: abort.signal });
 
   let destroyed = false;
   let paused = false;
@@ -165,7 +176,8 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
   } else {
     const loading = new LoadingScene();
     scenes.go(loading);
-    const loader = new AssetLoader(gl, options.assetBaseUrl ?? defaultAssetBaseUrl(), abort.signal);
+    const baseUrl = options.assetBaseUrl ?? defaultAssetBaseUrl();
+    const loader = new AssetLoader(gl, baseUrl, abort.signal);
     ready = loader
       .loadAll((p) => loading.setProgress(p.loaded, p.total))
       .then(async (loaded) => {
@@ -174,6 +186,12 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
           return;
         }
         assets = loaded;
+        if (options.audio !== 'none') {
+          audio = new WebAudioEngine(loaded.manifest, (p) => loader.resolve(p), abort.signal, {
+            muted: options.muted,
+          });
+          if (options.volume !== undefined) audio.setVolume(options.volume);
+        }
         if (startScene === 'assetViewer') {
           scenes.go(new AssetViewerScene(loaded));
           return;
@@ -183,7 +201,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
           loaded.levels,
           rules.starThresholds,
         );
-        flow = new GameFlow(loaded, scenes, saves, {
+        flow = new GameFlow(loaded, scenes, saves, audio, {
           rules,
           nextSeed: () => {
             seed = (seed + 0x9e3779b9) >>> 0;
@@ -228,6 +246,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     observer?.disconnect();
     input.destroy();
     scenes.destroy();
+    audio.destroy();
     assets?.destroy();
     renderer.destroy();
     // The GL context is intentionally left alive: a host (React StrictMode, prop changes)
@@ -245,6 +264,7 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
     pause() {
       if (paused || destroyed) return;
       paused = true;
+      audio.suspend();
       emit({ type: 'paused' });
     },
     resume() {
@@ -252,10 +272,14 @@ export function createGame(canvas: HTMLCanvasElement, options: GameOptions = {})
       paused = false;
       last = 0;
       accumulator = 0;
+      audio.resume();
       emit({ type: 'resumed' });
     },
-    setMuted(_muted: boolean) {
-      // Audio arrives in phase 7.
+    setMuted(muted: boolean) {
+      audio.setMuted(muted);
+    },
+    setVolume(volume: number) {
+      audio.setVolume(volume);
     },
     resize,
     destroy,

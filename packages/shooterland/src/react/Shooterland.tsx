@@ -24,6 +24,10 @@ export interface ShooterlandProps {
   /** Where save files live. Defaults to browser localStorage. */
   storage?: SaveStorage | undefined;
   muted?: boolean | undefined;
+  /** Master volume 0..1. */
+  volume?: number | undefined;
+  /** 'webaudio' (default) or 'none'. */
+  audio?: 'webaudio' | 'none' | undefined;
   /** Pause the simulation while the page is hidden. Default true. */
   pauseWhenHidden?: boolean | undefined;
   /** Seed for the deterministic simulation RNG. */
@@ -64,6 +68,8 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
     startScene,
     storage,
     muted,
+    volume,
+    audio,
     pauseWhenHidden = true,
     seed,
     className,
@@ -105,6 +111,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       pause: () => handleRef.current?.pause(),
       resume: () => handleRef.current?.resume(),
       setMuted: (m) => handleRef.current?.setMuted(m),
+      setVolume: (v) => handleRef.current?.setVolume(v),
       resize: (w, h) => handleRef.current?.resize(w, h),
       destroy: () => handleRef.current?.destroy(),
       debug: {
@@ -132,6 +139,8 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
     if (assetBaseUrl !== undefined) options.assetBaseUrl = assetBaseUrl;
     if (startSceneRef.current !== undefined) options.startScene = startSceneRef.current;
     if (storage !== undefined) options.storage = storage;
+    if (audio !== undefined) options.audio = audio;
+    if (volume !== undefined) options.volume = volume;
     if (seed !== undefined) options.seed = seed;
     if (muted !== undefined) options.muted = muted;
     try {
@@ -148,7 +157,7 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
       controller.abort();
       handleRef.current = null;
     };
-  }, [assetBaseUrl, startSceneKey, storage, seed, muted]);
+  }, [assetBaseUrl, startSceneKey, storage, seed, muted, audio]);
 
   useEffect(() => {
     if (!pauseWhenHidden) return;
@@ -165,6 +174,10 @@ export const Shooterland = forwardRef<GameHandle | null, ShooterlandProps>(funct
   useEffect(() => {
     handleRef.current?.setMuted(muted ?? false);
   }, [muted]);
+
+  useEffect(() => {
+    if (volume !== undefined) handleRef.current?.setVolume(volume);
+  }, [volume]);
 
   return (
     <div className={className} style={style ? { ...wrapperStyle, ...style } : wrapperStyle}>
